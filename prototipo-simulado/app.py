@@ -59,20 +59,47 @@ dados_sistema = {
 
 # Carregar/Criar Excel de agendamentos
 def carregar_excel():
-    """Carrega Excel se existir"""
+    """Carrega Excel se existir - trata telefones em notação científica"""
     if os.path.exists(EXCEL_PATH):
+        # Carregar com dtype específico para telefone como string
+        df = pd.read_excel(EXCEL_PATH, dtype={'telefone': str})
+        
+        # Limpar telefones - remover notação científica, .0 e apóstrofos
+        if 'telefone' in df.columns:
+            df['telefone'] = df['telefone'].apply(
+                lambda x: str(x).replace('.0', '').replace("'", '').strip() 
+                if pd.notna(x) and str(x) != 'nan' else ''
+            )
+        
         dados_sistema["excel_carregado"] = True
-        return pd.read_excel(EXCEL_PATH)
+        return df
     else:
         dados_sistema["excel_carregado"] = False
         return None
 
 def salvar_excel(df):
-    """Salva DataFrame no Excel"""
+    """Salva DataFrame no Excel com telefones em formato de texto"""
     # Substituir NaN por string vazia antes de salvar
     df = df.fillna('')
-    df.to_excel(EXCEL_PATH, index=False)
+    
+    # CRÍTICO: Converter telefone para string e adicionar apóstrofo para forçar texto
+    if 'telefone' in df.columns:
+        df['telefone'] = df['telefone'].apply(lambda x: f"'{str(x).replace('.0', '')}" if x and str(x) != '' and str(x) != 'nan' else '')
+    
+    # Salvar com engine openpyxl
+    with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+        
+        # Formatar coluna telefone como texto
+        worksheet = writer.sheets['Sheet1']
+        if 'telefone' in df.columns:
+            tel_col_idx = df.columns.get_loc('telefone') + 1  # Excel é 1-indexed
+            for row in range(2, len(df) + 2):  # Começar da linha 2 (após header)
+                cell = worksheet.cell(row=row, column=tel_col_idx)
+                cell.number_format = '@'  # Formato de texto
+    
     dados_sistema["excel_carregado"] = True
+    print("✅ Excel salvo com telefones em formato de texto")
 
 # Educação em Saúde - Orientações por especialidade usando Gemini
 def gerar_orientacoes_educativas(exame):
