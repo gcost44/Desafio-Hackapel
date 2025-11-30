@@ -199,12 +199,13 @@ class GoogleSheetsClient:
             agendados = sum(1 for r in dados if r.get('paciente') and str(r.get('paciente')).strip())
             confirmados = sum(1 for r in dados if str(r.get('status_confirmacao', '')).upper() == 'CONFIRMADO')
             cancelados = sum(1 for r in dados if str(r.get('status_confirmacao', '')).upper() == 'CANCELADO')
+            lembretes = sum(1 for r in dados if r.get('lembretes_enviados') and str(r.get('lembretes_enviados')).strip())
             
             return {
                 "agendados": agendados,
                 "confirmados": confirmados,
                 "cancelados": cancelados,
-                "lembretes": 0
+                "lembretes": lembretes
             }
         except Exception as e:
             print(f"❌ Erro ao contar métricas: {e}")
@@ -257,6 +258,96 @@ class GoogleSheetsClient:
         except Exception as e:
             print(f"❌ Erro ao verificar status: {e}")
             return {"carregado": False}
+    
+    def buscar_agendamentos_para_lembrete(self, dias_antecedencia):
+        """Busca agendamentos que precisam de lembrete (X dias antes)"""
+        if not self.conectado:
+            return []
+        
+        try:
+            from datetime import datetime, timedelta
+            
+            dados = self.worksheet.get_all_records()
+            hoje = datetime.now().date()
+            data_alvo = hoje + timedelta(days=dias_antecedencia)
+            
+            agendamentos = []
+            for idx, row in enumerate(dados):
+                # Só envia lembrete se tem paciente e está CONFIRMADO ou PENDENTE
+                paciente = row.get('paciente', '')
+                status = str(row.get('status_confirmacao', '')).upper()
+                
+                if not paciente or status not in ['CONFIRMADO', 'PENDENTE']:
+                    continue
+                
+                # Verificar data do agendamento
+                data_str = str(row.get('data', ''))
+                try:
+                    # Tenta diferentes formatos de data
+                    for fmt in ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y']:
+                        try:
+                            data_agendamento = datetime.strptime(data_str, fmt).date()
+                            break
+                        except:
+                            continue
+                    else:
+                        continue
+                    
+                    # Verifica se é a data alvo
+                    if data_agendamento == data_alvo:
+                        # Verifica se já enviou esse lembrete
+                        lembretes = str(row.get('lembretes_enviados', ''))
+                        chave_lembrete = f"{dias_antecedencia}d"
+                        
+                        if chave_lembrete not in lembretes:
+                            agendamentos.append({
+                                "linha": idx + 2,
+                                "paciente": str(paciente),
+                                "telefone": str(row.get('telefone', '')),
+                                "exame": str(row.get('exame', '')),
+                                "clinica": str(row.get('clinica', '')),
+                                "data": data_str,
+                                "horario": str(row.get('horario', '')),
+                                "dias_restantes": dias_antecedencia
+                            })
+                except Exception as e:
+                    print(f"⚠️ Erro ao processar data '{data_str}': {e}")
+                    continue
+            
+            return agendamentos
+        except Exception as e:
+            print(f"❌ Erro ao buscar lembretes: {e}")
+            return []
+    
+    def marcar_lembrete_enviado(self, linha, dias_antecedencia):
+        """Marca que um lembrete foi enviado"""
+        if not self.conectado:
+            return False
+        
+        try:
+            cabecalho = self.worksheet.row_values(1)
+            
+            # Verificar se coluna existe, senão criar
+            if 'lembretes_enviados' not in cabecalho:
+                nova_col = len(cabecalho) + 1
+                self.worksheet.update_cell(1, nova_col, 'lembretes_enviados')
+                col_lembretes = nova_col
+            else:
+                col_lembretes = cabecalho.index('lembretes_enviados') + 1
+            
+            # Ler valor atual e adicionar novo lembrete
+            valor_atual = self.worksheet.cell(linha, col_lembretes).value or ''
+            chave = f"{dias_antecedencia}d"
+            
+            if chave not in valor_atual:
+                novo_valor = f"{valor_atual},{chave}" if valor_atual else chave
+                self.worksheet.update_cell(linha, col_lembretes, novo_valor)
+                print(f"✅ Lembrete {chave} marcado: linha {linha}")
+            
+            return True
+        except Exception as e:
+            print(f"❌ Erro ao marcar lembrete: {e}")
+            return False
 
 
 # Instância global

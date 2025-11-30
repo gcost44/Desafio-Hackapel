@@ -238,6 +238,9 @@
         <div class="page-header">
             <h1>Painel do Operador</h1>
             <div style="display: flex; gap: 0.5rem;">
+                <button class="btn" style="background: #f59e0b; color: white;" onclick="enviarLembretes()" title="Enviar lembretes pendentes agora">
+                     Enviar Lembretes
+                </button>
                 <a href="/whatsapp-config" class="btn" style="background: #25D366; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
                     🟢 WhatsApp
                 </a>
@@ -518,6 +521,39 @@
         
         function fecharModal() {
             document.getElementById('modal-whatsapp').classList.remove('show');
+        }
+        
+        // Enviar lembretes manualmente
+        async function enviarLembretes() {
+            try {
+                // Primeiro verifica pendentes
+                const pendentes = await fetch('/api/lembretes/pendentes').then(r => r.json());
+                
+                if (pendentes.length === 0) {
+                    alert('📭 Nenhum lembrete pendente para enviar hoje.\n\nLembretes são enviados:\n• 7 dias antes\n• 5 dias antes\n• 3 dias antes\n• 24 horas antes');
+                    return;
+                }
+                
+                if (!confirm(`🔔 Existem ${pendentes.length} lembretes pendentes:\n\n${pendentes.slice(0,5).map(p => `• ${p.paciente} - ${p.exame} (${p.tipo_lembrete})`).join('\n')}${pendentes.length > 5 ? '\n...' : ''}\n\nDeseja enviar agora?`)) {
+                    return;
+                }
+                
+                const response = await fetch('/api/lembretes/enviar', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.sucesso) {
+                    alert('✅ ' + result.mensagem + '\n\nVerifique o console do servidor para detalhes.');
+                    setTimeout(atualizarDados, 3000);
+                } else {
+                    alert('❌ ' + (result.erro || 'Erro ao enviar lembretes'));
+                }
+            } catch (error) {
+                alert('❌ Erro ao processar lembretes');
+                console.error(error);
+            }
         }
         
         // Baixar planilha consolidada

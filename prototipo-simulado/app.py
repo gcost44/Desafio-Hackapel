@@ -15,6 +15,7 @@ import uuid
 from whatsapp_integration import whatsapp_client, MensagensSUS
 from google_sheets import sheets_client
 import requests
+import atexit
 
 app = Flask(__name__)
 CORS(app)
@@ -35,6 +36,89 @@ else:
 
 # Controle de mensagens processadas
 mensagens_processadas = set()
+
+# ==================== SISTEMA DE LEMBRETES ====================
+
+LEMBRETES_CONFIG = [
+    {"dias": 7, "template": "lembrete_7_dias"},
+    {"dias": 5, "template": "lembrete_5_dias"},
+    {"dias": 3, "template": "lembrete_3_dias"},
+    {"dias": 1, "template": "lembrete_24h"},  # 24 horas = 1 dia
+]
+
+def enviar_lembretes():
+    """Verifica e envia lembretes para todos os períodos configurados"""
+    print(f"\n🔔 [{datetime.now().strftime('%H:%M')}] Verificando lembretes...")
+    
+    if not sheets_client.conectado:
+        print("⚠️ Google Sheets não conectado")
+        return
+    
+    total_enviados = 0
+    
+    for config in LEMBRETES_CONFIG:
+        dias = config["dias"]
+        template_name = config["template"]
+        
+        # Buscar agendamentos que precisam de lembrete
+        agendamentos = sheets_client.buscar_agendamentos_para_lembrete(dias)
+        
+        if agendamentos:
+            print(f"📋 {len(agendamentos)} lembretes de {dias} dia(s) para enviar")
+        
+        for ag in agendamentos:
+            try:
+                # Selecionar template correto
+                template_func = getattr(MensagensSUS, template_name)
+                mensagem = template_func(
+                    ag["paciente"],
+                    ag["exame"],
+                    ag["data"],
+                    ag["horario"],
+                    ag["clinica"]
+                )
+                
+                # Enviar mensagem com áudio
+                resultado = whatsapp_client.enviar_mensagem_completa(
+                    ag["telefone"], 
+                    mensagem, 
+                    com_audio=True
+                )
+                
+                if resultado.get("sucesso"):
+                    # Marcar lembrete como enviado
+                    sheets_client.marcar_lembrete_enviado(ag["linha"], dias)
+                    total_enviados += 1
+                    print(f"✅ Lembrete {dias}d enviado: {ag['paciente']} - {ag['exame']}")
+                else:
+                    print(f"❌ Falha ao enviar lembrete: {ag['paciente']}")
+                
+                # Pequena pausa entre envios
+                time.sleep(2)
+                
+            except Exception as e:
+                print(f"❌ Erro ao enviar lembrete: {e}")
+    
+    if total_enviados > 0:
+        print(f"✅ Total: {total_enviados} lembretes enviados")
+    else:
+        print("📭 Nenhum lembrete para enviar agora")
+
+def iniciar_scheduler_lembretes():
+    """Inicia thread que verifica lembretes periodicamente"""
+    def loop_lembretes():
+        print("🔔 Sistema de lembretes iniciado")
+        while True:
+            try:
+                enviar_lembretes()
+            except Exception as e:
+                print(f"❌ Erro no scheduler de lembretes: {e}")
+            # Verifica a cada 1 hora
+            time.sleep(3600)
+    
+    thread = Thread(target=loop_lembretes, daemon=True)
+    thread.start()
+    return thread
 
 # ==================== IA GEMINI ====================
 
@@ -153,6 +237,27 @@ def agendamentos():
 @app.route('/api/whatsapp/status')
 def whatsapp_status():
     return jsonify(whatsapp_client.verificar_conexao())
+
+@app.route('/api/lembretes/enviar', methods=['POST'])
+def enviar_lembretes_manual():
+    """Endpoint para enviar lembretes manualmente"""
+    try:
+        Thread(target=enviar_lembretes).start()
+        return jsonify({"sucesso": True, "mensagem": "Verificação de lembretes iniciada"})
+    except Exception as e:
+        return jsonify({"sucesso": False, "erro": str(e)}), 500
+
+@app.route('/api/lembretes/pendentes')
+def lembretes_pendentes():
+    """Lista lembretes pendentes para os próximos dias"""
+    pendentes = []
+    for config in LEMBRETES_CONFIG:
+        dias = config["dias"]
+        agendamentos = sheets_client.buscar_agendamentos_para_lembrete(dias)
+        for ag in agendamentos:
+            ag["tipo_lembrete"] = f"{dias} dia(s)"
+        pendentes.extend(agendamentos)
+    return jsonify(pendentes)
 
 @app.route('/api/whatsapp/qrcode')
 def whatsapp_qrcode():
@@ -287,8 +392,8 @@ def processar_resposta(telefone, resposta):
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🏥 SISTEMA SUS - Hackapel 2025 v4.0")
-    print("📊 Google Sheets + WhatsApp + TTS")
+    print("🏥 SISTEMA SUS - Hackapel 2025 v5.0")
+    print("📊 Google Sheets + WhatsApp + TTS + Lembretes")
     print("="*60)
     
     # Detectar Railway
@@ -301,8 +406,13 @@ if __name__ == '__main__':
     if sheets_client.conectado:
         status = sheets_client.status_planilha()
         print(f"✅ Google Sheets: {status.get('total_horarios', 0)} horários")
+        
+        # Iniciar sistema de lembretes
+        iniciar_scheduler_lembretes()
+        print("🔔 Sistema de lembretes: ATIVO (verifica a cada 1h)")
     else:
         print("⚠️ Google Sheets: Não conectado")
+        print("⚠️ Sistema de lembretes: DESATIVADO")
     
     print("🔊 TTS ativo em todas mensagens")
     

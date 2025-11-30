@@ -237,6 +237,93 @@ O horário foi liberado.
 Para reagendar: (53) 3000-0000
 
 Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def lembrete_7_dias(nome, exame, data, horario, clinica):
+        return f"""🔔 LEMBRETE - 7 DIAS
+
+Olá, {nome}!
+
+Sua consulta está chegando!
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+👨‍⚕️ Especialidade: {exame}
+
+Faltam 7 dias para sua consulta.
+
+📲 Responda:
+2️⃣ - Para CANCELAR
+
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def lembrete_5_dias(nome, exame, data, horario, clinica):
+        return f"""🔔 LEMBRETE - 5 DIAS
+
+Olá, {nome}!
+
+Sua consulta está se aproximando!
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+👨‍⚕️ Especialidade: {exame}
+
+Faltam 5 dias para sua consulta.
+Separe seus documentos: RG e Cartão SUS.
+
+📲 Responda:
+2️⃣ - Para CANCELAR
+
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def lembrete_3_dias(nome, exame, data, horario, clinica):
+        return f"""🔔 LEMBRETE - 3 DIAS
+
+Olá, {nome}!
+
+Sua consulta é em 3 dias!
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+👨‍⚕️ Especialidade: {exame}
+
+⚠️ Prepare-se:
+- RG e Cartão SUS
+- Exames anteriores
+- Lista de medicamentos
+
+📲 Responda:
+2️⃣ - Para CANCELAR
+
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def lembrete_24h(nome, exame, data, horario, clinica):
+        return f"""🔔 LEMBRETE URGENTE - AMANHÃ!
+
+Olá, {nome}!
+
+Sua consulta é AMANHÃ!
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+👨‍⚕️ Especialidade: {exame}
+
+⚠️ IMPORTANTE:
+- Chegue 15 minutos antes
+- Leve RG e Cartão SUS
+- Leve exames anteriores
+
+📲 Responda:
+2️⃣ - Para CANCELAR (urgente)
+
+Sistema SUS - Hackapel 2025"""
 
 # ==================== INSTÂNCIA GLOBAL ====================
 
