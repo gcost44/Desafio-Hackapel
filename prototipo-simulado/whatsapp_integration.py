@@ -13,7 +13,13 @@ class WhatsAppEvolution:
     
     def __init__(self):
         # Configurações da Evolution API
-        self.base_url = os.environ.get('EVOLUTION_API_URL', 'http://localhost:8080')
+        base_url = os.environ.get('EVOLUTION_API_URL', 'http://localhost:8080')
+        
+        # Garantir que a URL tenha protocolo
+        if base_url and not base_url.startswith(('http://', 'https://')):
+            base_url = f'https://{base_url}'
+        
+        self.base_url = base_url
         self.api_key = os.environ.get('EVOLUTION_API_KEY', '')
         self.instance_name = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
         
