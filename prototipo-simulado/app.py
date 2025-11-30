@@ -387,19 +387,24 @@ def processar_resposta(telefone, resposta):
             print("❌ Excel não carregado")
             return
         
-        # Normalizar telefone
+        # Normalizar telefone recebido - pegar últimos 8 dígitos para comparação
         tel = ''.join(c for c in str(telefone) if c.isdigit())
+        
+        # Remover código do país (55) se presente
         if tel.startswith('55') and len(tel) > 11:
             tel = tel[2:]
         
         print(f"📞 Telefone normalizado: {tel}")
-        print(f"📋 Telefones na planilha: {df['telefone'].tolist()}")
+        print(f"📋 Telefones na planilha: {[t for t in df['telefone'].tolist() if t]}")
         
-        # Buscar paciente
+        # Buscar paciente - usar últimos 8 dígitos para ser mais flexível
+        # (ignora diferenças no 9º dígito de celulares)
+        ultimos_digitos = tel[-8:]
+        
         df['_tel'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
-        mask = df['_tel'].str.contains(tel[-9:], na=False)
+        mask = df['_tel'].str.endswith(ultimos_digitos, na=False)
         
-        print(f"🔍 Buscando: {tel[-9:]}")
+        print(f"🔍 Buscando telefone terminando em: {ultimos_digitos}")
         print(f"🔍 Matches: {mask.sum()}")
         
         if not mask.any():
@@ -408,7 +413,8 @@ def processar_resposta(telefone, resposta):
         
         idx = df[mask].index[0]
         paciente = df.at[idx, 'paciente']
-        print(f"✅ Paciente encontrado: {paciente}")
+        telefone_original = df.at[idx, 'telefone']
+        print(f"✅ Paciente encontrado: {paciente} (tel: {telefone_original})")
         
         # Converter colunas para evitar warnings
         for col in ['disponivel', 'paciente', 'telefone', 'status_confirmacao']:
@@ -422,8 +428,8 @@ def processar_resposta(telefone, resposta):
             dados_sistema['metricas']['confirmados'] += 1
             
             msg = MensagensSUS.consulta_confirmada(paciente)
-            print(f"📤 Enviando confirmação para {telefone}")
-            whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+            print(f"📤 Enviando confirmação para {telefone_original}")
+            whatsapp_client.enviar_mensagem_completa(telefone_original, msg, com_audio=True)
             print(f"✅ CONFIRMADO: {paciente}")
             
         elif resposta == '2':
@@ -436,8 +442,8 @@ def processar_resposta(telefone, resposta):
             dados_sistema['metricas']['cancelados'] += 1
             
             msg = MensagensSUS.consulta_cancelada(paciente)
-            print(f"📤 Enviando cancelamento para {telefone}")
-            whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+            print(f"📤 Enviando cancelamento para {telefone_original}")
+            whatsapp_client.enviar_mensagem_completa(telefone_original, msg, com_audio=True)
             print(f"❌ CANCELADO: {paciente}")
             
     except Exception as e:
