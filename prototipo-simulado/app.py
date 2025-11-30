@@ -1251,9 +1251,15 @@ def verificar_mensagens_whatsapp():
 
 if __name__ == '__main__':
     print("\n" + "="*70)
-    print("🏥 SISTEMA DE AGENDAMENTOS SUS v2.0 - Fluxo Operador")
+    print("🏥 SISTEMA DE AGENDAMENTOS SUS v3.0 - TTS em todas mensagens")
     print("="*70)
     print("\n🚀 Inicializando sistema...")
+    
+    # Detectar URL pública do Railway
+    railway_url = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    if railway_url:
+        print(f"🌐 URL Pública: https://{railway_url}")
+        os.environ['PUBLIC_URL'] = railway_url
     
     # Verificar Excel
     df = carregar_excel()
@@ -1265,21 +1271,23 @@ if __name__ == '__main__':
     print("\n" + "="*70)
     print("📋 FLUXO DO SISTEMA:")
     print("="*70)
-    print("1️⃣  Operador faz UPLOAD da planilha Excel de horários")
-    print("2️⃣  Operador cadastra: Nome + Telefone + Exame")
-    print("3️⃣  Sistema BUSCA AUTOMATICAMENTE vaga na planilha")
-    print("4️⃣  WhatsApp enviado INSTANTANEAMENTE para o paciente")
-    print("5️⃣  Lembretes automáticos: 7, 5, 3 dias e 24h antes")
-    print("6️⃣  Se cancelar: Operador é notificado + Horário liberado")
+    print("1️⃣  Operador cadastra: Nome + Telefone + Exame")
+    print("2️⃣  Sistema BUSCA vaga na planilha + marca como PENDENTE")
+    print("3️⃣  WhatsApp TEXTO + ÁUDIO enviado para paciente")
+    print("4️⃣  Paciente responde 1 (confirma) ou 2 (cancela)")
+    print("5️⃣  Sistema atualiza planilha e envia resposta com ÁUDIO")
+    print("6️⃣  Se cancelar: Horário LIBERADO automaticamente")
     print("="*70)
-    print("\n📱 Abra no navegador: http://localhost:5000")
-    print("="*70 + "\n")
     
     # Iniciar polling de mensagens em background
     polling_thread = Thread(target=verificar_mensagens_whatsapp, daemon=True)
     polling_thread.start()
-    print("✅ Polling de mensagens WhatsApp ativado (verifica a cada 10s)\n")
+    print("✅ Polling de mensagens WhatsApp ativado (verifica a cada 15s)")
+    print("🔊 TTS (Text-to-Speech) ativado para TODAS as mensagens\n")
     
     # Porta dinâmica para Railway, 5000 para local
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=False)
+    print(f"📱 Servidor: http://localhost:{port}")
+    print("="*70 + "\n")
+    
+    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)

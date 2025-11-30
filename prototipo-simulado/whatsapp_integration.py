@@ -29,8 +29,13 @@ class Config:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     AUDIO_DIR = os.path.join(BASE_DIR, 'static', 'audios')
     
-    # URL pública para áudios (Railway)
-    PUBLIC_URL = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    # URL pública para áudios (Railway - tentar várias variáveis)
+    PUBLIC_URL = (
+        os.environ.get('RAILWAY_PUBLIC_DOMAIN') or
+        os.environ.get('RAILWAY_STATIC_URL') or
+        os.environ.get('PUBLIC_URL') or
+        ''
+    )
     
     @classmethod
     def get_evolution_url(cls):
@@ -43,9 +48,22 @@ class Config:
     @classmethod
     def get_audio_url(cls, filename):
         """Retorna URL pública do áudio"""
-        if cls.PUBLIC_URL:
-            return f"https://{cls.PUBLIC_URL}/static/audios/{filename}"
-        return f"http://localhost:5000/static/audios/{filename}"
+        # Recarregar a cada chamada (para pegar atualização de variável)
+        public_url = (
+            os.environ.get('RAILWAY_PUBLIC_DOMAIN') or
+            os.environ.get('RAILWAY_STATIC_URL') or
+            os.environ.get('PUBLIC_URL') or
+            ''
+        )
+        
+        if public_url:
+            # Remover protocolo se já tiver
+            public_url = public_url.replace('https://', '').replace('http://', '')
+            return f"https://{public_url}/static/audios/{filename}"
+        
+        # Fallback para localhost
+        port = os.environ.get('PORT', '5000')
+        return f"http://localhost:{port}/static/audios/{filename}"
 
 # Criar diretório de áudios
 os.makedirs(Config.AUDIO_DIR, exist_ok=True)
