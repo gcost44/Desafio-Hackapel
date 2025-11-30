@@ -38,28 +38,38 @@ class WhatsAppEvolution:
     
     def formatar_numero(self, telefone):
         """Formata número para padrão WhatsApp: 5511999999999@s.whatsapp.net"""
-        # Remove caracteres especiais e espaços
-        numero = ''.join(filter(str.isdigit, str(telefone).strip()))
+        # Força conversão para string e remove espaços/caracteres especiais
+        telefone_str = str(telefone).strip()
         
-        print(f"🔍 DEBUG - Número original: '{telefone}'")
-        print(f"🔍 DEBUG - Após limpar: '{numero}'")
-        print(f"🔍 DEBUG - Comprimento: {len(numero)} dígitos")
+        # Remove tudo que não é dígito
+        numero = ''.join(c for c in telefone_str if c.isdigit())
         
-        # Remove 55 se já tiver (para reprocessar)
-        if numero.startswith('55'):
+        print(f"🔍 DEBUG - Número original: '{telefone}' (tipo: {type(telefone).__name__})")
+        print(f"🔍 DEBUG - Após limpar: '{numero}' (comprimento: {len(numero)})")
+        
+        # Remove 55 do início se já tiver
+        if numero.startswith('55') and len(numero) > 11:
             numero = numero[2:]
             print(f"🔍 DEBUG - Removeu 55 existente: '{numero}'")
         
-        # Valida formato brasileiro: DDD (2) + número (8 ou 9 dígitos)
+        # Valida formato brasileiro: DDD (2) + número (8 ou 9 dígitos) = 10 ou 11 dígitos
         if len(numero) < 10 or len(numero) > 11:
             print(f"❌ ERRO - Número inválido: {len(numero)} dígitos (esperado 10-11)")
+            # Tenta corrigir números com dígitos extras
+            if len(numero) > 11:
+                numero = numero[:11]  # Pega só os primeiros 11
+                print(f"⚠️ CORREÇÃO - Truncado para: '{numero}'")
+        
+        # Garante que não tem 55 no início antes de adicionar
+        if numero.startswith('55'):
+            numero = numero[2:]
         
         # Adiciona código do país Brasil
         numero_final = '55' + numero
         print(f"🔍 DEBUG - Número final: '{numero_final}' ({len(numero_final)} dígitos)")
         
         resultado = f"{numero_final}@s.whatsapp.net"
-        print(f"🔍 DEBUG - JID WhatsApp: '{resultado}'")
+        print(f"🔍 DEBUG - JID final: '{resultado}'")
         
         return resultado
     
