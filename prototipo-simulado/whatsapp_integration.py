@@ -310,26 +310,42 @@ class WhatsAppEvolution:
             return {"sucesso": False, "erro": str(e)}
     
     def configurar_webhook(self, webhook_url):
-        """Configura webhook para receber mensagens"""
+        """Configura webhook para receber mensagens - Evolution API v2"""
         if self.modo_simulacao:
             return {"sucesso": False, "erro": "Evolution API não configurada"}
         
         try:
+            # Evolution API v2 formato de webhook
             payload = {
+                "enabled": True,
                 "url": webhook_url,
-                "webhook_by_events": False,
-                "webhook_base64": False,
-                "events": ["MESSAGES_UPSERT"]
+                "webhookByEvents": False,
+                "webhookBase64": False,
+                "events": [
+                    "QRCODE_UPDATED",
+                    "MESSAGES_UPSERT",
+                    "MESSAGES_UPDATE", 
+                    "MESSAGES_DELETE",
+                    "SEND_MESSAGE",
+                    "CONNECTION_UPDATE"
+                ]
             }
             
             url = f"{self.base_url}/webhook/set/{self.instance_name}"
+            print(f"🔗 Configurando webhook Evolution API v2")
+            print(f"URL: {url}")
+            print(f"Payload: {payload}")
+            
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            
+            print(f"Status: {response.status_code}")
+            print(f"Resposta: {response.text}")
             
             if response.status_code in [200, 201]:
                 print(f"✅ Webhook configurado: {webhook_url}")
-                return {"sucesso": True, "webhook_url": webhook_url}
+                return {"sucesso": True, "webhook_url": webhook_url, "response": response.json()}
             else:
-                return {"sucesso": False, "erro": response.text}
+                return {"sucesso": False, "erro": response.text, "status": response.status_code}
                 
         except Exception as e:
             return {"sucesso": False, "erro": str(e)}
