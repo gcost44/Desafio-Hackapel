@@ -168,11 +168,20 @@ class WhatsAppEvolution:
             return {"conectado": False, "erro": str(e)}
     
     def criar_instancia(self):
-        """Cria nova instância do WhatsApp"""
+        """Cria nova instância do WhatsApp - verifica se já existe primeiro"""
         if self.modo_simulacao:
             return {"sucesso": False, "erro": "Configure Evolution API primeiro"}
         
         try:
+            # Verificar se instância já existe
+            url_check = f"{self.base_url}/instance/connectionState/{self.instance_name}"
+            check_response = requests.get(url_check, headers=self.headers, timeout=5)
+            
+            if check_response.status_code == 200:
+                # Instância já existe - tentar obter QR Code
+                return {"sucesso": False, "erro": "Instância já existe. Use 'Obter QR Code' para conectar.", "ja_existe": True}
+            
+            # Instância não existe - criar
             payload = {
                 "instanceName": self.instance_name,
                 "qrcode": True,
@@ -189,6 +198,9 @@ class WhatsAppEvolution:
                     "qrcode": data.get('qrcode', {}).get('base64'),
                     "response": data
                 }
+            elif response.status_code == 403:
+                # Nome já em uso
+                return {"sucesso": False, "erro": "Instância já existe. Use 'Obter QR Code' para conectar.", "ja_existe": True}
             else:
                 return {"sucesso": False, "erro": response.text}
                 
