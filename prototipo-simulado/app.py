@@ -1024,10 +1024,12 @@ Obrigado! 🏥"""
 def verificar_mensagens_whatsapp():
     """Verifica novas mensagens do WhatsApp periodicamente (polling)"""
     print("\n🔄 Sistema de polling de mensagens iniciado")
+    tentativa = 0
     
     while True:
         try:
-            time.sleep(10)  # Verificar a cada 10 segundos
+            time.sleep(15)  # Verificar a cada 15 segundos
+            tentativa += 1
             
             # Buscar mensagens recentes
             evolution_url = os.environ.get('EVOLUTION_API_URL', '')
@@ -1035,6 +1037,7 @@ def verificar_mensagens_whatsapp():
             instance = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
             
             if not evolution_url or not evolution_key:
+                print(f"⚠️ [Polling {tentativa}] Variáveis não configuradas")
                 continue
             
             # Garantir https://
@@ -1046,21 +1049,38 @@ def verificar_mensagens_whatsapp():
                 'apikey': evolution_key
             }
             
-            # Buscar mensagens dos últimos 30 segundos
-            url = f"{evolution_url}/message/find/{instance}"
-            params = {
-                'limit': 50,
-                'where': {
-                    'key.fromMe': False  # Apenas mensagens recebidas
-                }
-            }
+            # Buscar mensagens recentes - Endpoint correto da Evolution API
+            url = f"{evolution_url}/chat/findMessages/{instance}"
             
-            response = requests.get(url, headers=headers, params={'limit': 50}, timeout=10)
+            print(f"\n🔍 [Polling {tentativa}] Verificando mensagens...")
+            print(f"URL: {url}")
+            
+            response = requests.post(url, headers=headers, json={
+                'where': {
+                    'key': {
+                        'fromMe': False
+                    }
+                },
+                'limit': 20
+            }, timeout=10)
+            
+            print(f"📡 Status: {response.status_code}")
             
             if response.status_code == 200:
-                mensagens = response.json()
+                dados = response.json()
+                print(f"📦 Resposta: {type(dados)}")
                 
-                if isinstance(mensagens, list):
+                # Evolution API pode retornar diferentes formatos
+                mensagens = dados
+                if isinstance(dados, dict):
+                    mensagens = dados.get('messages', dados.get('data', []))
+                
+                if not isinstance(mensagens, list):
+                    mensagens = [mensagens] if mensagens else []
+                
+                print(f"📬 {len(mensagens)} mensagens encontradas")
+                
+                if isinstance(mensagens, list) and len(mensagens) > 0:
                     for msg in mensagens:
                         try:
                             # Extrair informações
@@ -1106,11 +1126,20 @@ def verificar_mensagens_whatsapp():
                                 Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
                         
                         except Exception as e:
-                            print(f"⚠️ Erro ao processar mensagem: {e}")
+                            print(f"⚠️ Erro ao processar mensagem individual: {e}")
+                            import traceback
+                            traceback.print_exc()
                             continue
+                else:
+                    print(f"✓ Nenhuma mensagem nova")
+            else:
+                print(f"❌ Erro na API: {response.status_code}")
+                print(f"Resposta: {response.text[:200]}")
         
         except Exception as e:
-            print(f"⚠️ Erro no polling: {e}")
+            print(f"❌ Erro no polling: {e}")
+            import traceback
+            traceback.print_exc()
             time.sleep(30)  # Aguardar mais tempo em caso de erro
 
 # ==================== INICIALIZAÇÃO ====================
