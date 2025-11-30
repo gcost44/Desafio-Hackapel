@@ -854,18 +854,25 @@ def whatsapp_configurar_webhook():
     except Exception as e:
         return jsonify({"sucesso": False, "erro": str(e)}), 500
 
-@app.route('/webhook/whatsapp', methods=['POST', 'GET'])
+@app.route('/webhook/whatsapp', methods=['POST', 'GET', 'PUT', 'DELETE', 'PATCH'])
 def webhook_whatsapp():
     """Recebe mensagens do WhatsApp"""
+    print(f"\n🔔 WEBHOOK CHAMADO! Método: {request.method}")
+    
     if request.method == 'GET':
-        return jsonify({"status": "webhook ativo", "url": request.url}), 200
+        return jsonify({"status": "webhook ativo", "url": request.url, "metodo": "GET"}), 200
     
     try:
+        print(f"\n🔥 WEBHOOK INICIANDO PROCESSAMENTO...")
+        print(f"Headers: {dict(request.headers)}")
+        print(f"Content-Type: {request.content_type}")
+        print(f"Data: {request.data}")
+        
         dados = request.get_json()
         print(f"\n{'='*60}")
         print(f"📨 WEBHOOK RECEBIDO!")
         print(f"{'='*60}")
-        print(f"Dados completos: {json.dumps(dados, indent=2)}")
+        print(f"Dados completos: {json.dumps(dados, indent=2) if dados else 'NULL'}")
         
         # Verificar tipo de evento
         evento = dados.get('event') if dados else None
