@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração WhatsApp - Evolution API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+        
+        .navbar {
+            background: #1a1a1a;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .navbar h1 {
+            font-size: 1.5rem;
+        }
+        
+        .navbar a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid white;
+            border-radius: 4px;
+            transition: 0.3s;
+        }
+        
+        .navbar a:hover {
+            background: white;
+            color: #1a1a1a;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .status-card {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 4px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .status-dot {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        
+        .status-dot.conectado {
+            background: #25D366;
+            box-shadow: 0 0 10px #25D366;
+        }
+        
+        .status-dot.desconectado {
+            background: #e74c3c;
+        }
+        
+        .status-dot.simulacao {
+            background: #f39c12;
+        }
+        
+        .qrcode-container {
+            text-align: center;
+            padding: 2rem;
+            background: #f8f8f8;
+            border-radius: 4px;
+            margin: 1.5rem 0;
+        }
+        
+        .qrcode-container img {
+            max-width: 300px;
+            border: 5px solid white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: 0.3s;
+            margin-right: 0.5rem;
+        }
+        
+        .btn-primary {
+            background: #25D366;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #128C7E;
+        }
+        
+        .btn-secondary {
+            background: #e5e5e5;
+            color: #1a1a1a;
+        }
+        
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+        
+        .info-box {
+            background: #E3F2FD;
+            border-left: 4px solid #2196F3;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .warning-box {
+            background: #FFF3E0;
+            border-left: 4px solid #FF9800;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .success-box {
+            background: #E8F5E9;
+            border-left: 4px solid #4CAF50;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .config-section {
+            margin-bottom: 2rem;
+        }
+        
+        .config-section h2 {
+            margin-bottom: 1rem;
+            color: #1a1a1a;
+        }
+        
+        .config-section code {
+            background: #f5f5f5;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        pre {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>🟢 Configuração WhatsApp Evolution API</h1>
+        <a href="/">← Voltar ao Sistema</a>
+    </nav>
+    
+    <div class="container">
+        <!-- Status da Conexão -->
+        <div class="status-card">
+            <h2>Status da Conexão</h2>
+            <div class="status-indicator" id="statusIndicator">
+                <div class="status-dot simulacao"></div>
+                <div>
+                    <strong id="statusText">Verificando...</strong><br>
+                    <small id="statusDetails">Aguarde...</small>
+                </div>
+            </div>
+            
+            <button class="btn btn-primary" onclick="verificarStatus()">🔄 Atualizar Status</button>
+            <button class="btn btn-secondary" onclick="mostrarQRCode()">📱 Obter QR Code</button>
+        </div>
+        
+        <!-- QR Code -->
+        <div class="status-card" id="qrcodeSection" style="display: none;">
+            <h2>QR Code para Conectar</h2>
+            <div class="info-box">
+                <strong>📱 Como conectar:</strong>
+                <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li>Abra o WhatsApp no seu celular</li>
+                    <li>Toque em Menu (⋮) ou Configurações</li>
+                    <li>Toque em "Aparelhos conectados"</li>
+                    <li>Toque em "Conectar um aparelho"</li>
+                    <li>Aponte a câmera para este QR Code</li>
+                </ol>
+            </div>
+            
+            <div class="qrcode-container" id="qrcodeContainer">
+                <div class="loading active">Gerando QR Code...</div>
+            </div>
+        </div>
+        
+        <!-- Configuração -->
+        <div class="status-card config-section">
+            <h2>📋 Configuração Evolution API</h2>
+            
+            <div id="configInfo"></div>
+            
+            <div class="warning-box">
+                <strong>⚠️ Atenção:</strong> Para usar WhatsApp REAL, você precisa configurar as variáveis de ambiente no Railway.
+            </div>
+            
+            <h3>Variáveis de Ambiente Necessárias:</h3>
+            <pre>
+EVOLUTION_API_URL=https://sua-api.evolutionapi.com
+EVOLUTION_API_KEY=sua-chave-api-aqui
+EVOLUTION_INSTANCE=sus-agendamentos
+            </pre>
+            
+            <div class="info-box">
+                <strong>🚀 Deploy Evolution API (Docker):</strong>
+                <pre style="margin-top: 0.5rem;">
+docker run -d \
+  --name evolution-api \
+  -p 8080:8080 \
+  -e AUTHENTICATION_API_KEY=SUA_CHAVE_SECRETA \
+  atendai/evolution-api:latest
+                </pre>
+            </div>
+        </div>
+        
+        <!-- Guia Completo -->
+        <div class="status-card config-section">
+            <h2>📖 Guia Completo de Instalação</h2>
+            
+            <h3>Opção 1: Docker (Recomendado)</h3>
+            <ol style="margin-left: 1.5rem;">
+                <li>Instale Docker: <code>https://docker.com</code></li>
+                <li>Execute o comando acima</li>
+                <li>API estará em: <code>http://localhost:8080</code></li>
+                <li>Configure as variáveis no Railway</li>
+            </ol>
+            
+            <h3 style="margin-top: 1.5rem;">Opção 2: Railway Próprio</h3>
+            <ol style="margin-left: 1.5rem;">
+                <li>Fork do repositório: <code>https://github.com/EvolutionAPI/evolution-api</code></li>
+                <li>Deploy no Railway</li>
+                <li>Copie a URL gerada</li>
+                <li>Configure as variáveis de ambiente</li>
+            </ol>
+            
+            <div class="success-box" style="margin-top: 1.5rem;">
+                <strong>✅ Após configurar:</strong><br>
+                O sistema enviará mensagens REAIS via WhatsApp automaticamente!<br>
+                • Agendamentos confirmados<br>
+                • Áudio para idosos<br>
+                • Lembretes automáticos<br>
+                • Confirmações/Cancelamentos
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Verificar status ao carregar
+        window.onload = () => {
+            verificarStatus();
+            carregarConfig();
+        };
+        
+        async function verificarStatus() {
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                const data = await response.json();
+                
+                const indicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                const statusDetails = document.getElementById('statusDetails');
+                
+                if (data.simulacao) {
+                    indicator.querySelector('.status-dot').className = 'status-dot simulacao';
+                    statusText.textContent = 'Modo Simulação';
+                    statusDetails.textContent = 'Configure Evolution API para envio real';
+                } else if (data.conectado) {
+                    indicator.querySelector('.status-dot').className = 'status-dot conectado';
+                    statusText.textContent = 'WhatsApp Conectado';
+                    statusDetails.textContent = 'Pronto para enviar mensagens reais!';
+                } else {
+                    indicator.querySelector('.status-dot').className = 'status-dot desconectado';
+                    statusText.textContent = 'WhatsApp Desconectado';
+                    statusDetails.textContent = 'Clique em "Obter QR Code" para conectar';
+                }
+            } catch (error) {
+                console.error('Erro ao verificar status:', error);
+            }
+        }
+        
+        async function mostrarQRCode() {
+            const section = document.getElementById('qrcodeSection');
+            section.style.display = 'block';
+            
+            const container = document.getElementById('qrcodeContainer');
+            container.innerHTML = '<div class="loading active">Gerando QR Code...</div>';
+            
+            try {
+                const response = await fetch('/api/whatsapp/qrcode');
+                const data = await response.json();
+                
+                if (data.sucesso && data.qrcode) {
+                    container.innerHTML = `<img src="${data.qrcode}" alt="QR Code WhatsApp">`;
+                } else {
+                    container.innerHTML = `
+                        <div class="warning-box">
+                            <strong>⚠️ Erro ao gerar QR Code</strong><br>
+                            ${data.erro || 'Configure Evolution API primeiro'}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="warning-box">
+                        <strong>❌ Erro:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function carregarConfig() {
+            try {
+                const response = await fetch('/api/whatsapp/config');
+                const data = await response.json();
+                
+                const configInfo = document.getElementById('configInfo');
+                configInfo.innerHTML = `
+                    <p><strong>URL Base:</strong> <code>${data.base_url}</code></p>
+                    <p><strong>Instância:</strong> <code>${data.instance_name}</code></p>
+                    <p><strong>Modo:</strong> ${data.modo_simulacao ? '⚠️ Simulação' : '✅ API Configurada'}</p>
+                `;
+            } catch (error) {
+                console.error('Erro ao carregar config:', error);
+            }
+        }
+    </script>
+</body>
+</html>

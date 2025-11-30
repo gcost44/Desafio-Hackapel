@@ -19,6 +19,7 @@ import time
 import google.generativeai as genai
 from gtts import gTTS
 import uuid
+from whatsapp_integration import whatsapp_client
 
 app = Flask(__name__)
 CORS(app)
@@ -369,7 +370,7 @@ http://localhost:5000/static/audios/{audio_filename}
 
 👵👴 Atendimento preferencial garantido!"""
     
-    # Enviar mensagem WhatsApp automaticamente
+    # Enviar mensagem WhatsApp REAL via Evolution API
     mensagem = f"""✅ AGENDAMENTO CONFIRMADO
 
 Olá, {nome}!
@@ -380,7 +381,6 @@ Sua consulta foi agendada:
 🏥 Local: {vaga_info['clinica']}
 👨‍⚕️ Especialidade: {exame}
 {'👵 Idade: ' + str(idade) + ' anos (Atendimento Prioritário)' if idade >= 60 else ''}
-{audio_idoso}
 
 {orientacoes}
 
@@ -391,11 +391,17 @@ Responda:
 1 - Confirmar
 2 - Cancelar"""
     
-    # Log simulado
-    print(f"\n📱 [WhatsApp ENVIADO] {telefone}")
-    if idade >= 60:
+    # Enviar via Evolution API
+    resultado_envio = whatsapp_client.enviar_mensagem_texto(telefone, mensagem)
+    
+    # Se for idoso, enviar áudio separado
+    if idade >= 60 and audio_filename:
+        # URL pública do áudio (ajustar conforme domínio)
+        audio_url_publico = f"{request.host_url}static/audios/{audio_filename}"
+        whatsapp_client.enviar_audio(telefone, audio_url_publico)
         print(f"   👴👵 IDOSO ({idade} anos) - ÁUDIO ENVIADO")
-    print(f"   {mensagem[:100]}...\n")
+    
+    print(f"\n🟢 [WhatsApp REAL] Enviado para {telefone}")
     
     return jsonify({
         "sucesso": True,
@@ -801,6 +807,41 @@ def download_excel():
 def relatorios():
     """Página de relatórios"""
     return render_template('relatorios.html')
+
+# ==================== ROTAS WHATSAPP EVOLUTION API ====================
+
+@app.route('/api/whatsapp/status')
+def whatsapp_status():
+    """Verifica status da conexão WhatsApp"""
+    status = whatsapp_client.verificar_status_instancia()
+    return jsonify(status)
+
+@app.route('/api/whatsapp/qrcode')
+def whatsapp_qrcode():
+    """Obtém QR Code para conectar WhatsApp"""
+    resultado = whatsapp_client.obter_qrcode()
+    return jsonify(resultado)
+
+@app.route('/api/whatsapp/criar-instancia', methods=['POST'])
+def whatsapp_criar_instancia():
+    """Cria nova instância WhatsApp"""
+    resultado = whatsapp_client.criar_instancia()
+    return jsonify(resultado)
+
+@app.route('/api/whatsapp/config')
+def whatsapp_config():
+    """Retorna configurações atuais"""
+    return jsonify({
+        "base_url": whatsapp_client.base_url,
+        "instance_name": whatsapp_client.instance_name,
+        "modo_simulacao": whatsapp_client.modo_simulacao,
+        "api_configurada": not whatsapp_client.modo_simulacao
+    })
+
+@app.route('/whatsapp-config')
+def whatsapp_config_page():
+    """Página de configuração WhatsApp"""
+    return render_template('whatsapp_config.html')
 
 # ==================== INICIALIZAÇÃO ====================
 
