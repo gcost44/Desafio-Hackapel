@@ -386,27 +386,27 @@
         // Atualizar métricas
         async function atualizarDados() {
             try {
-                const [metricas, notifs, agendamentos] = await Promise.all([
+                const [metricas, agendamentos] = await Promise.all([
                     fetch('/api/metricas').then(r => r.json()),
-                    fetch('/api/notificacoes').then(r => r.json()),
                     fetch('/api/agendamentos').then(r => r.json())
                 ]);
                 
                 // Métricas
-                document.getElementById('total-agendados').textContent = metricas.agendados;
-                document.getElementById('total-confirmados').textContent = metricas.confirmados;
-                document.getElementById('total-cancelados').textContent = metricas.cancelados;
-                document.getElementById('total-lembretes').textContent = metricas.lembretes_enviados;
+                document.getElementById('total-agendados').textContent = metricas.agendados || 0;
+                document.getElementById('total-confirmados').textContent = metricas.confirmados || 0;
+                document.getElementById('total-cancelados').textContent = metricas.cancelados || 0;
+                document.getElementById('total-lembretes').textContent = metricas.lembretes || 0;
                 
-                // Notificações
+                // Notificações (baseado nos agendamentos recentes)
                 const notifsDiv = document.getElementById('notificacoes');
+                const notifs = agendamentos.filter(a => a.status === 'confirmado' || a.status === 'cancelado');
                 if (notifs.length === 0) {
                     notifsDiv.innerHTML = '<p style="text-align: center; color: #a0aec0; padding: 2rem;">Nenhuma notificação no momento</p>';
                 } else {
-                    notifsDiv.innerHTML = notifs.reverse().map(n => `
-                        <div class="notificacao ${n.tipo === 'CANCELAMENTO' ? 'cancelamento' : 'convocacao'}">
-                            <div class="notificacao-header">${n.mensagem}</div>
-                            <div class="notificacao-time">${n.horario}</div>
+                    notifsDiv.innerHTML = notifs.slice(-5).reverse().map(n => `
+                        <div class="notificacao ${n.status === 'cancelado' ? 'cancelamento' : 'convocacao'}">
+                            <div class="notificacao-header">${n.paciente} - ${n.status === 'cancelado' ? 'Cancelou' : 'Confirmou'}</div>
+                            <div class="notificacao-time">${n.exame} • ${n.data}</div>
                         </div>
                     `).join('');
                 }
