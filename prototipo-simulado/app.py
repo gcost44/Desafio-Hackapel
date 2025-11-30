@@ -308,6 +308,65 @@ def whatsapp_qrcode():
 def whatsapp_config():
     return render_template('whatsapp_config.html')
 
+# ==================== WEBHOOK EVOLUTION API ====================
+
+@app.route('/webhook/evolution', methods=['POST'])
+def webhook_evolution():
+    """Recebe mensagens da Evolution API via Webhook"""
+    try:
+        data = request.json
+        print(f"📩 Webhook recebido: {data}")
+        
+        # Evolution API envia diferentes eventos
+        event = data.get('event', '')
+        
+        # Mensagem recebida
+        if event == 'messages.upsert':
+            messages = data.get('data', [])
+            if not isinstance(messages, list):
+                messages = [messages]
+            
+            for msg in messages:
+                key = msg.get('key', {})
+                
+                # Ignorar mensagens enviadas por nós
+                if key.get('fromMe'):
+                    continue
+                
+                msg_id = key.get('id', '')
+                if msg_id in mensagens_processadas:
+                    continue
+                
+                mensagens_processadas.add(msg_id)
+                
+                # Extrair número e texto
+                numero = key.get('remoteJid', '').replace('@s.whatsapp.net', '')
+                
+                # O texto pode estar em diferentes lugares
+                message_content = msg.get('message', {})
+                texto = (
+                    message_content.get('conversation') or
+                    message_content.get('extendedTextMessage', {}).get('text') or
+                    ''
+                ).strip()
+                
+                print(f"📱 Mensagem de {numero}: '{texto}'")
+                
+                if texto in ['1', '2']:
+                    print(f"✅ Processando resposta {texto} de {numero}")
+                    Thread(target=processar_resposta, args=(numero, texto)).start()
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        print(f"❌ Erro webhook: {e}")
+        return jsonify({"erro": str(e)}), 500
+
+@app.route('/webhook/evolution', methods=['GET'])
+def webhook_evolution_verify():
+    """Verificação do webhook"""
+    return jsonify({"status": "webhook ativo", "sistema": "SUS Hackapel 2025"})
+
 @app.route('/simulador')
 def simulador():
     return render_template('simulador.html')
@@ -320,9 +379,12 @@ def relatorios():
 
 def processar_resposta(telefone, resposta):
     """Processa resposta 1=Confirmar ou 2=Cancelar"""
+    print(f"🔄 Processando resposta: telefone={telefone}, resposta={resposta}")
+    
     try:
         df = carregar_excel()
         if df is None:
+            print("❌ Excel não carregado")
             return
         
         # Normalizar telefone
@@ -330,9 +392,15 @@ def processar_resposta(telefone, resposta):
         if tel.startswith('55') and len(tel) > 11:
             tel = tel[2:]
         
+        print(f"📞 Telefone normalizado: {tel}")
+        print(f"📋 Telefones na planilha: {df['telefone'].tolist()}")
+        
         # Buscar paciente
         df['_tel'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
         mask = df['_tel'].str.contains(tel[-9:], na=False)
+        
+        print(f"🔍 Buscando: {tel[-9:]}")
+        print(f"🔍 Matches: {mask.sum()}")
         
         if not mask.any():
             print(f"❌ Telefone {tel} não encontrado")
@@ -340,6 +408,12 @@ def processar_resposta(telefone, resposta):
         
         idx = df[mask].index[0]
         paciente = df.at[idx, 'paciente']
+        print(f"✅ Paciente encontrado: {paciente}")
+        
+        # Converter colunas para evitar warnings
+        for col in ['disponivel', 'paciente', 'telefone', 'status_confirmacao']:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
         
         if resposta == '1':
             # Confirmar
@@ -348,6 +422,7 @@ def processar_resposta(telefone, resposta):
             dados_sistema['metricas']['confirmados'] += 1
             
             msg = MensagensSUS.consulta_confirmada(paciente)
+            print(f"📤 Enviando confirmação para {telefone}")
             whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
             print(f"✅ CONFIRMADO: {paciente}")
             
@@ -361,11 +436,14 @@ def processar_resposta(telefone, resposta):
             dados_sistema['metricas']['cancelados'] += 1
             
             msg = MensagensSUS.consulta_cancelada(paciente)
+            print(f"📤 Enviando cancelamento para {telefone}")
             whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
             print(f"❌ CANCELADO: {paciente}")
             
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ Erro ao processar resposta: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ==================== POLLING ====================
 
@@ -387,18 +465,26 @@ def polling_whatsapp():
             if not url.startswith('http'):
                 url = f'https://{url}'
             
-            resp = requests.post(
+            print(f"🔍 Polling: Buscando mensagens...")
+            
+            # Tentar endpoint de mensagens recentes
+            resp = requests.get(
                 f"{url}/chat/findMessages/{instance}",
                 headers={'apikey': key, 'Content-Type': 'application/json'},
-                json={'where': {'key': {'fromMe': False}}, 'limit': 3},
+                params={'limit': 10},
                 timeout=10
             )
             
+            print(f"📡 Polling status: {resp.status_code}")
+            
             if resp.status_code != 200:
+                print(f"⚠️ Polling falhou: {resp.text[:100] if resp.text else 'sem resposta'}")
                 continue
             
             dados = resp.json()
-            msgs = dados if isinstance(dados, list) else dados.get('messages', [])
+            print(f"📬 Dados recebidos: {type(dados)} - {str(dados)[:200]}")
+            
+            msgs = dados if isinstance(dados, list) else dados.get('messages', dados.get('data', []))
             
             for msg in msgs:
                 key_data = msg.get('key', {})
@@ -410,10 +496,17 @@ def polling_whatsapp():
                 mensagens_processadas.add(msg_id)
                 
                 numero = key_data.get('remoteJid', '').replace('@s.whatsapp.net', '')
-                texto = msg.get('message', {}).get('conversation', '').strip()
+                
+                # Texto pode estar em diferentes lugares
+                message = msg.get('message', {})
+                texto = (
+                    message.get('conversation') or
+                    message.get('extendedTextMessage', {}).get('text') or
+                    ''
+                ).strip()
                 
                 if texto in ['1', '2']:
-                    print(f"📱 {numero}: '{texto}'")
+                    print(f"📱 RESPOSTA: {numero} -> '{texto}'")
                     Thread(target=processar_resposta, args=(numero, texto)).start()
             
             # Limpar cache
