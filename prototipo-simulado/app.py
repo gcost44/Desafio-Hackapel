@@ -969,16 +969,23 @@ def processar_resposta_paciente(telefone, resposta):
         
         # Normalizar telefone - remover tudo que não é número
         telefone_numeros = ''.join(c for c in str(telefone) if c.isdigit())
-        print(f"📞 Telefone normalizado: {telefone_numeros}")
+        print(f"📞 Telefone recebido (números): {telefone_numeros}")
         
-        # Tentar diferentes formatos
+        # REMOVER o 55 do início se vier (código do Brasil do WhatsApp)
+        if telefone_numeros.startswith('55') and len(telefone_numeros) > 11:
+            telefone_numeros = telefone_numeros[2:]  # Remove os 2 primeiros dígitos (55)
+            print(f"📞 Telefone sem código Brasil: {telefone_numeros}")
+        
+        # Tentar diferentes formatos (do mais específico para o mais genérico)
         formatos_busca = [
-            telefone_numeros,  # 5553991452210
-            telefone_numeros[-11:] if len(telefone_numeros) >= 11 else telefone_numeros,  # 53991452210
-            telefone_numeros[-10:] if len(telefone_numeros) >= 10 else telefone_numeros,  # 3991452210
-            telefone_numeros[-9:] if len(telefone_numeros) >= 9 else telefone_numeros,   # 991452210
+            telefone_numeros,  # 53991189715 (com DDD)
+            telefone_numeros[-11:] if len(telefone_numeros) >= 11 else telefone_numeros,  # 53991189715
+            telefone_numeros[-10:] if len(telefone_numeros) >= 10 else telefone_numeros,  # 3991189715
+            telefone_numeros[-9:] if len(telefone_numeros) >= 9 else telefone_numeros,   # 991189715
         ]
         
+        # Remover duplicatas mantendo ordem
+        formatos_busca = list(dict.fromkeys(formatos_busca))
         print(f"🔍 Tentando formatos: {formatos_busca}")
         
         # Normalizar telefones da planilha
