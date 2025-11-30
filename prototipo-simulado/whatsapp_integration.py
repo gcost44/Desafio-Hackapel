@@ -6,6 +6,7 @@ Evolution API: https://github.com/EvolutionAPI/evolution-api
 
 import requests
 import os
+import json
 from datetime import datetime
 
 class WhatsAppEvolution:
