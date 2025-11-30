@@ -205,6 +205,7 @@
             <button class="btn btn-primary" onclick="verificarStatus()">🔄 Atualizar Status</button>
             <button class="btn btn-primary" onclick="mostrarQRCode()">📱 Obter QR Code</button>
             <button class="btn btn-secondary" onclick="criarInstancia()">➕ Criar Instância</button>
+            <button class="btn btn-secondary" onclick="configurarWebhook()" style="background: #28a745;">🔗 Ativar Respostas Automáticas</button>
         </div>
         
         <!-- QR Code -->
@@ -406,6 +407,30 @@ docker run -d \
                         <strong>❌ Erro:</strong> ${error.message}
                     </div>
                 `;
+            }
+        }
+        
+        async function configurarWebhook() {
+            if (!confirm('🔗 Ativar respostas automáticas?\n\nQuando pacientes responderem:\n• 1 = Confirmar consulta\n• 2 = Cancelar consulta\n\nO sistema processará automaticamente.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/whatsapp/configurar-webhook', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                
+                const data = await response.json();
+                
+                if (data.sucesso) {
+                    alert('✅ Respostas automáticas ativadas!\n\nAgora quando pacientes responderem 1 ou 2, o sistema processará automaticamente.');
+                } else {
+                    alert('❌ Erro: ' + (data.erro || 'Erro desconhecido'));
+                }
+            } catch (error) {
+                alert('❌ Erro ao configurar: ' + error.message);
             }
         }
         

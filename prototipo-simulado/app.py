@@ -843,6 +843,128 @@ def whatsapp_config_page():
     """Página de configuração WhatsApp"""
     return render_template('whatsapp_config.html')
 
+@app.route('/api/whatsapp/configurar-webhook', methods=['POST'])
+def whatsapp_configurar_webhook():
+    """Configura webhook na Evolution API"""
+    try:
+        data = request.get_json() or {}
+        webhook_url = data.get('webhook_url') or f"{request.host_url}webhook/whatsapp"
+        resultado = whatsapp_client.configurar_webhook(webhook_url)
+        return jsonify(resultado)
+    except Exception as e:
+        return jsonify({"sucesso": False, "erro": str(e)}), 500
+
+@app.route('/webhook/whatsapp', methods=['POST'])
+def webhook_whatsapp():
+    """Recebe mensagens do WhatsApp"""
+    try:
+        dados = request.get_json()
+        print(f"\n📨 Webhook recebido: {json.dumps(dados, indent=2)}")
+        
+        # Verificar tipo de evento
+        if not dados or dados.get('event') != 'messages.upsert':
+            return jsonify({"status": "ignored"}), 200
+        
+        # Extrair dados
+        mensagem_data = dados.get('data', {})
+        key_info = mensagem_data.get('key', {})
+        mensagem_info = mensagem_data.get('message', {})
+        
+        # Ignorar mensagens enviadas por nós
+        if key_info.get('fromMe'):
+            return jsonify({"status": "ignored"}), 200
+        
+        # Número do remetente
+        numero_completo = key_info.get('remoteJid', '')
+        numero = numero_completo.replace('@s.whatsapp.net', '')
+        
+        # Texto da mensagem
+        texto = mensagem_info.get('conversation') or mensagem_info.get('extendedTextMessage', {}).get('text', '')
+        texto = texto.strip()
+        
+        print(f"📱 De: {numero} | Mensagem: '{texto}'")
+        
+        # Processar resposta
+        if texto in ['1', '2']:
+            Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        print(f"❌ Erro webhook: {e}")
+        return jsonify({"status": "error", "erro": str(e)}), 500
+
+def processar_resposta_paciente(telefone, resposta):
+    """Processa resposta 1=Confirmar ou 2=Cancelar"""
+    try:
+        df = carregar_excel()
+        if df is None:
+            return
+        
+        # Buscar pelo telefone (remover 55 se tiver)
+        tel_busca = telefone[2:] if telefone.startswith('55') else telefone
+        df['telefone'] = df['telefone'].astype(str)
+        
+        agendamento = df[df['telefone'].str.contains(tel_busca, na=False)]
+        if agendamento.empty:
+            print(f"⚠️ Agendamento não encontrado: {tel_busca}")
+            return
+        
+        idx = agendamento.index[0]
+        paciente = df.at[idx, 'paciente']
+        
+        if resposta == '1':
+            # CONFIRMAR
+            if 'status_confirmacao' not in df.columns:
+                df['status_confirmacao'] = ''
+            df.at[idx, 'status_confirmacao'] = 'CONFIRMADO'
+            salvar_excel(df)
+            
+            dados_sistema['metricas']['confirmados'] += 1
+            
+            msg = f"""✅ *Consulta Confirmada!*
+
+Olá, {paciente}!
+
+Sua consulta foi confirmada com sucesso.
+
+📅 Compareça no dia e horário agendados
+📋 Leve documentos e exames anteriores
+⏰ Chegue 15 minutos antes
+
+Obrigado! 🏥"""
+            
+            whatsapp_client.enviar_mensagem_texto(telefone, msg)
+            print(f"✅ Confirmação enviada: {paciente}")
+            
+        elif resposta == '2':
+            # CANCELAR
+            df.at[idx, 'disponivel'] = 'SIM'
+            df.at[idx, 'paciente'] = ''
+            df.at[idx, 'telefone'] = ''
+            if 'status_confirmacao' in df.columns:
+                df.at[idx, 'status_confirmacao'] = ''
+            salvar_excel(df)
+            
+            dados_sistema['metricas']['cancelados'] += 1
+            
+            msg = f"""❌ *Consulta Cancelada*
+
+Olá, {paciente}.
+
+Sua consulta foi cancelada.
+O horário está disponível novamente.
+
+Para reagendar, entre em contato com a UBS.
+
+Obrigado! 🏥"""
+            
+            whatsapp_client.enviar_mensagem_texto(telefone, msg)
+            print(f"❌ Cancelamento processado: {paciente}")
+            
+    except Exception as e:
+        print(f"❌ Erro ao processar resposta: {e}")
+
 # ==================== INICIALIZAÇÃO ====================
 
 if __name__ == '__main__':

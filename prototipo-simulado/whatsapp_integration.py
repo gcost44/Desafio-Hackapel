@@ -308,6 +308,31 @@ class WhatsAppEvolution:
                 
         except Exception as e:
             return {"sucesso": False, "erro": str(e)}
+    
+    def configurar_webhook(self, webhook_url):
+        """Configura webhook para receber mensagens"""
+        if self.modo_simulacao:
+            return {"sucesso": False, "erro": "Evolution API não configurada"}
+        
+        try:
+            payload = {
+                "url": webhook_url,
+                "webhook_by_events": False,
+                "webhook_base64": False,
+                "events": ["MESSAGES_UPSERT"]
+            }
+            
+            url = f"{self.base_url}/webhook/set/{self.instance_name}"
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            
+            if response.status_code in [200, 201]:
+                print(f"✅ Webhook configurado: {webhook_url}")
+                return {"sucesso": True, "webhook_url": webhook_url}
+            else:
+                return {"sucesso": False, "erro": response.text}
+                
+        except Exception as e:
+            return {"sucesso": False, "erro": str(e)}
 
 # Cliente global
 whatsapp_client = WhatsAppEvolution()
