@@ -81,21 +81,30 @@ class WhatsAppEvolution:
             return {"sucesso": True, "simulado": True}
         
         try:
-            numero_formatado = self.formatar_numero(telefone)
+            # Formata e pega só o número (sem @s.whatsapp.net)
+            numero_completo = self.formatar_numero(telefone)
+            numero_limpo = numero_completo.split('@')[0]  # Remove @s.whatsapp.net
             
-            # Evolution API v2 formato correto
+            print(f"🔍 ENVIO - Número original: '{telefone}'")
+            print(f"🔍 ENVIO - Número formatado: '{numero_completo}'")
+            print(f"🔍 ENVIO - Número limpo: '{numero_limpo}'")
+            
+            # Evolution API v2 formato correto - APENAS O NÚMERO
             payload = {
-                "number": numero_formatado,
+                "number": numero_limpo,
                 "textMessage": {
                     "text": mensagem
                 }
             }
             
             url = f"{self.base_url}/message/sendText/{self.instance_name}"
-            print(f"📤 Enviando para: {url}")
-            print(f"📦 Payload: {payload}")
+            print(f"📤 URL: {url}")
+            print(f"📦 Payload completo: {payload}")
             
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            
+            print(f"📡 Status HTTP: {response.status_code}")
+            print(f"📡 Resposta: {response.text[:200]}")
             
             if response.status_code == 201 or response.status_code == 200:
                 print(f"✅ Mensagem enviada para {telefone}")
@@ -116,11 +125,15 @@ class WhatsAppEvolution:
             return {"sucesso": True, "simulado": True}
         
         try:
-            numero_formatado = self.formatar_numero(telefone)
+            # Formata e pega só o número (sem @s.whatsapp.net)
+            numero_completo = self.formatar_numero(telefone)
+            numero_limpo = numero_completo.split('@')[0]
             
-            # Evolution API v2 formato correto para áudio
+            print(f"🔊 ÁUDIO - Número limpo: '{numero_limpo}'")
+            
+            # Evolution API v2 formato correto para áudio - APENAS O NÚMERO
             payload = {
-                "number": numero_formatado,
+                "number": numero_limpo,
                 "mediaMessage": {
                     "mediatype": "audio",
                     "media": audio_url
@@ -128,9 +141,12 @@ class WhatsAppEvolution:
             }
             
             url = f"{self.base_url}/message/sendMedia/{self.instance_name}"
-            print(f"🔊 Enviando áudio para: {url}")
+            print(f"🔊 URL áudio: {url}")
+            print(f"🔊 Payload áudio: {payload}")
             
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            
+            print(f"📡 Status áudio: {response.status_code}")
             
             if response.status_code == 201 or response.status_code == 200:
                 print(f"✅ Áudio enviado para {telefone}")
