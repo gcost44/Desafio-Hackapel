@@ -204,6 +204,20 @@ def webhook_evolution():
                 if texto in ['1', '2']:
                     print(f"✅ Processando resposta {texto} de {numero}")
                     Thread(target=processar_resposta, args=(numero, texto)).start()
+                else:
+                    # Resposta inválida
+                    print(f"⚠️ Resposta inválida de {numero}: '{texto}'")
+                    msg = """⚠️ Desculpe, não conseguimos processar sua mensagem.
+
+Por favor, responda apenas com:
+1️⃣ - Para CONFIRMAR
+2️⃣ - Para CANCELAR
+
+Para outras dúvidas, entre em contato:
+📞 (53) 3000-0000
+
+Sistema SUS - Hackapel 2025"""
+                    whatsapp_client.enviar_mensagem_completa(numero, msg, com_audio=True)
         
         return jsonify({"status": "ok"}), 200
         
