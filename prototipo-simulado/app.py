@@ -1,11 +1,10 @@
 """
 🏥 SISTEMA DE AGENDAMENTOS SUS - Hackapel 2025
-Versão 3.0 - WhatsApp com TTS (Text-to-Speech)
+Versão 4.0 - Google Sheets + WhatsApp + TTS
 """
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
-import pandas as pd
 from datetime import datetime
 import os
 from threading import Thread
@@ -14,6 +13,7 @@ import google.generativeai as genai
 from gtts import gTTS
 import uuid
 from whatsapp_integration import whatsapp_client, MensagensSUS
+from google_sheets import sheets_client
 import requests
 
 app = Flask(__name__)
@@ -22,9 +22,7 @@ CORS(app)
 # ==================== CONFIGURAÇÃO ====================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(BASE_DIR, 'agenda_clinicas.xlsx')
 AUDIO_PATH = os.path.join(BASE_DIR, 'static', 'audios')
-
 os.makedirs(AUDIO_PATH, exist_ok=True)
 
 # Gemini API
@@ -35,52 +33,8 @@ if GEMINI_API_KEY:
 else:
     modelo_gemini = None
 
-# Controle
+# Controle de mensagens processadas
 mensagens_processadas = set()
-dados_sistema = {
-    "metricas": {"agendados": 0, "confirmados": 0, "cancelados": 0},
-    "agendamentos": [],
-    "excel_carregado": False
-}
-
-# ==================== EXCEL ====================
-
-def carregar_excel():
-    """Carrega planilha de horários"""
-    if not os.path.exists(EXCEL_PATH):
-        dados_sistema["excel_carregado"] = False
-        return None
-    
-    df = pd.read_excel(EXCEL_PATH, dtype={'telefone': str})
-    if 'telefone' in df.columns:
-        df['telefone'] = df['telefone'].apply(
-            lambda x: str(x).replace('.0', '').replace("'", '').strip() 
-            if pd.notna(x) and str(x) != 'nan' else ''
-        )
-    dados_sistema["excel_carregado"] = True
-    return df
-
-def salvar_excel(df):
-    """Salva planilha com telefones em formato texto"""
-    df = df.fillna('')
-    if 'telefone' in df.columns:
-        df['telefone'] = df['telefone'].apply(
-            lambda x: str(x).replace('.0', '').replace("'", '').strip() 
-            if x and str(x) not in ['', 'nan'] else ''
-        )
-    
-    with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-        ws = writer.sheets['Sheet1']
-        if 'telefone' in df.columns:
-            col = df.columns.get_loc('telefone') + 1
-            for row in range(2, len(df) + 2):
-                cell = ws.cell(row=row, column=col)
-                cell.number_format = '@'
-                if cell.value:
-                    cell.value = str(cell.value)
-    
-    dados_sistema["excel_carregado"] = True
 
 # ==================== IA GEMINI ====================
 
@@ -123,7 +77,7 @@ Leve RG, Cartão SUS e exames anteriores. Chegue 15 minutos antes."""
 
 @app.route('/')
 def index():
-    return render_template('index.html', metricas=dados_sistema["metricas"])
+    return render_template('index.html')
 
 @app.route('/api/agendar', methods=['POST'])
 def agendar():
@@ -137,6 +91,10 @@ def agendar():
     if not all([nome, telefone, exame, data_nascimento]):
         return jsonify({"erro": "Preencha todos os campos"}), 400
     
+    # Verificar conexão com Google Sheets
+    if not sheets_client.conectado:
+        return jsonify({"erro": "Google Sheets não conectado. Configure as credenciais."}), 400
+    
     # Calcular idade
     try:
         nasc = datetime.strptime(data_nascimento, "%Y-%m-%d")
@@ -145,60 +103,44 @@ def agendar():
     except:
         return jsonify({"erro": "Data inválida"}), 400
     
-    # Carregar Excel
-    df = carregar_excel()
-    if df is None:
-        return jsonify({"erro": "Carregue a planilha primeiro"}), 400
-    
-    # Buscar vaga
-    vaga = df[(df["exame"] == exame) & (df["disponivel"] == "SIM")]
-    if vaga.empty:
+    # Buscar vaga no Google Sheets
+    linha, info = sheets_client.buscar_vaga(exame)
+    if linha is None:
         return jsonify({"erro": f"Sem vagas para {exame}"}), 404
     
     # Reservar vaga
-    idx = vaga.index[0]
-    info = vaga.iloc[0]
+    sucesso = sheets_client.reservar_vaga(linha, nome, telefone)
+    if not sucesso:
+        return jsonify({"erro": "Erro ao reservar vaga"}), 500
     
-    # Converter colunas para object/string para evitar warnings do pandas
-    for col in ['disponivel', 'paciente', 'telefone']:
-        df[col] = df[col].astype(str)
-    if 'status_confirmacao' not in df.columns:
-        df['status_confirmacao'] = ''
-    df['status_confirmacao'] = df['status_confirmacao'].astype(str)
-    
-    df.at[idx, "disponivel"] = "NAO"
-    df.at[idx, "paciente"] = str(nome)
-    df.at[idx, "telefone"] = str(telefone)
-    df.at[idx, "status_confirmacao"] = "PENDENTE"
-    
-    salvar_excel(df)
-    
-    # Criar agendamento
+    # Criar resposta
     agendamento = {
-        "id": len(dados_sistema["agendamentos"]) + 1,
-        "paciente": nome, "telefone": telefone, "idade": idade,
-        "exame": exame, "clinica": info["clinica"],
-        "data": info["data"], "horario": info["horario"],
+        "id": linha,
+        "paciente": nome, 
+        "telefone": telefone, 
+        "idade": idade,
+        "exame": exame, 
+        "clinica": info.get("clinica", ""),
+        "data": info.get("data", ""), 
+        "horario": info.get("horario", ""),
         "status": "pendente"
     }
-    dados_sistema["agendamentos"].append(agendamento)
-    dados_sistema["metricas"]["agendados"] += 1
     
     # Criar mensagem
     orientacoes = gerar_orientacoes(exame)
     mensagem = MensagensSUS.agendamento_confirmado(
-        nome, exame, info['data'], info['horario'], info['clinica'],
+        nome, exame, info.get('data', ''), info.get('horario', ''), info.get('clinica', ''),
         idade if idade >= 60 else None
     )
     if orientacoes:
         mensagem += f"\n\n{orientacoes}"
     
     # Enviar WhatsApp + TTS
-    resultado = whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
+    whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
     
     # Áudio extra para idosos
     if idade >= 60:
-        audio = gerar_audio_idoso(nome, idade, exame, info['data'], info['horario'], info['clinica'])
+        audio = gerar_audio_idoso(nome, idade, exame, info.get('data', ''), info.get('horario', ''), info.get('clinica', ''))
         if audio:
             url = f"{request.host_url}static/audios/{audio}"
             whatsapp_client.enviar_audio(telefone, url)
@@ -209,126 +151,20 @@ def agendar():
         "mensagem": mensagem
     })
 
-@app.route('/api/upload-excel', methods=['POST'])
-def upload_excel():
-    """Upload de planilha"""
-    if 'file' not in request.files:
-        return jsonify({"erro": "Nenhum arquivo"}), 400
-    
-    file = request.files['file']
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        return jsonify({"erro": "Arquivo deve ser Excel"}), 400
-    
-    try:
-        df_novo = pd.read_excel(file)
-        colunas = ["clinica", "exame", "data", "horario", "disponivel"]
-        if not all(c in df_novo.columns for c in colunas):
-            return jsonify({"erro": f"Faltam colunas: {colunas}"}), 400
-        
-        for col in ["paciente", "telefone", "status_confirmacao"]:
-            if col not in df_novo.columns:
-                df_novo[col] = ""
-        
-        # Juntar com existente se houver
-        df_existente = carregar_excel()
-        if df_existente is not None:
-            df_existente['_key'] = df_existente.apply(
-                lambda r: f"{r['clinica']}|{r['exame']}|{r['data']}|{r['horario']}", axis=1)
-            df_novo['_key'] = df_novo.apply(
-                lambda r: f"{r['clinica']}|{r['exame']}|{r['data']}|{r['horario']}", axis=1)
-            
-            novos = df_novo[~df_novo['_key'].isin(df_existente['_key'])]
-            df_final = pd.concat([
-                df_existente.drop(columns=['_key']), 
-                novos.drop(columns=['_key'])
-            ], ignore_index=True)
-        else:
-            df_final = df_novo
-        
-        salvar_excel(df_final)
-        vagas = len(df_final[df_final["disponivel"] == "SIM"])
-        
-        return jsonify({
-            "sucesso": True,
-            "total_horarios": len(df_final),
-            "vagas_disponiveis": vagas
-        })
-    except Exception as e:
-        return jsonify({"erro": str(e)}), 500
-
 @app.route('/api/status-excel')
 def status_excel():
-    """Status da planilha"""
-    df = carregar_excel()
-    if df is None:
-        return jsonify({"carregado": False})
-    
-    return jsonify({
-        "carregado": True,
-        "total_horarios": len(df),
-        "vagas_disponiveis": len(df[df["disponivel"] == "SIM"]),
-        "vagas_ocupadas": len(df[df["disponivel"] != "SIM"])
-    })
+    """Status da planilha Google Sheets"""
+    return jsonify(sheets_client.status_planilha())
 
 @app.route('/api/metricas')
 def metricas():
-    """Retorna métricas lidas diretamente do Excel"""
-    df = carregar_excel()
-    if df is None:
-        return jsonify({"agendados": 0, "confirmados": 0, "cancelados": 0, "lembretes": 0})
-    
-    # Contar do Excel
-    agendados = len(df[df['paciente'].notna() & (df['paciente'] != '') & (df['paciente'] != 'nan')])
-    confirmados = len(df[df['status_confirmacao'] == 'CONFIRMADO']) if 'status_confirmacao' in df.columns else 0
-    cancelados = len(df[df['status_confirmacao'] == 'CANCELADO']) if 'status_confirmacao' in df.columns else 0
-    
-    return jsonify({
-        "agendados": agendados,
-        "confirmados": confirmados,
-        "cancelados": cancelados,
-        "lembretes": 0
-    })
+    """Retorna métricas do Google Sheets"""
+    return jsonify(sheets_client.contar_metricas())
 
 @app.route('/api/agendamentos')
 def agendamentos():
-    """Retorna lista de agendamentos do Excel"""
-    df = carregar_excel()
-    if df is None:
-        return jsonify([])
-    
-    # Filtrar apenas linhas com paciente
-    df_agendados = df[df['paciente'].notna() & (df['paciente'] != '') & (df['paciente'] != 'nan')].copy()
-    
-    lista = []
-    for idx, row in df_agendados.iterrows():
-        lista.append({
-            "id": idx + 1,
-            "paciente": str(row.get('paciente', '')),
-            "telefone": str(row.get('telefone', '')),
-            "exame": str(row.get('exame', '')),
-            "clinica": str(row.get('clinica', '')),
-            "data": str(row.get('data', '')),
-            "horario": str(row.get('horario', '')),
-            "status": str(row.get('status_confirmacao', 'PENDENTE')).lower()
-        })
-    
-    return jsonify(lista[-20:])
-
-@app.route('/api/download-excel')
-def download_excel():
-    """Download da planilha"""
-    if not os.path.exists(EXCEL_PATH):
-        return jsonify({"erro": "Nenhuma planilha"}), 404
-    return send_file(EXCEL_PATH, as_attachment=True, 
-                    download_name=f'agendamentos_{datetime.now().strftime("%Y%m%d")}.xlsx')
-
-@app.route('/api/limpar-excel', methods=['POST'])
-def limpar_excel():
-    """Remove planilha"""
-    if os.path.exists(EXCEL_PATH):
-        os.remove(EXCEL_PATH)
-    dados_sistema["excel_carregado"] = False
-    return jsonify({"sucesso": True})
+    """Retorna lista de agendamentos"""
+    return jsonify(sheets_client.listar_agendamentos()[-20:])
 
 # ==================== WHATSAPP ====================
 
@@ -353,10 +189,8 @@ def webhook_evolution():
         data = request.json
         print(f"📩 Webhook recebido: {data}")
         
-        # Evolution API envia diferentes eventos
         event = data.get('event', '')
         
-        # Mensagem recebida
         if event == 'messages.upsert':
             messages = data.get('data', [])
             if not isinstance(messages, list):
@@ -365,7 +199,6 @@ def webhook_evolution():
             for msg in messages:
                 key = msg.get('key', {})
                 
-                # Ignorar mensagens enviadas por nós
                 if key.get('fromMe'):
                     continue
                 
@@ -375,10 +208,8 @@ def webhook_evolution():
                 
                 mensagens_processadas.add(msg_id)
                 
-                # Extrair número e texto
                 numero = key.get('remoteJid', '').replace('@s.whatsapp.net', '')
                 
-                # O texto pode estar em diferentes lugares
                 message_content = msg.get('message', {})
                 texto = (
                     message_content.get('conversation') or
@@ -418,50 +249,24 @@ def processar_resposta(telefone, resposta):
     print(f"🔄 Processando resposta: telefone={telefone}, resposta={resposta}")
     
     try:
-        df = carregar_excel()
-        if df is None:
-            print("❌ Excel não carregado")
+        if not sheets_client.conectado:
+            print("❌ Google Sheets não conectado")
             return
         
-        # Normalizar telefone recebido - pegar últimos 8 dígitos para comparação
-        tel = ''.join(c for c in str(telefone) if c.isdigit())
+        # Buscar paciente por telefone
+        linha, dados = sheets_client.buscar_por_telefone(telefone)
         
-        # Remover código do país (55) se presente
-        if tel.startswith('55') and len(tel) > 11:
-            tel = tel[2:]
-        
-        print(f"📞 Telefone normalizado: {tel}")
-        print(f"📋 Telefones na planilha: {[t for t in df['telefone'].tolist() if t]}")
-        
-        # Buscar paciente - usar últimos 8 dígitos para ser mais flexível
-        # (ignora diferenças no 9º dígito de celulares)
-        ultimos_digitos = tel[-8:]
-        
-        df['_tel'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
-        mask = df['_tel'].str.endswith(ultimos_digitos, na=False)
-        
-        print(f"🔍 Buscando telefone terminando em: {ultimos_digitos}")
-        print(f"🔍 Matches: {mask.sum()}")
-        
-        if not mask.any():
-            print(f"❌ Telefone {tel} não encontrado")
+        if linha is None:
+            print(f"❌ Telefone {telefone} não encontrado")
             return
         
-        idx = df[mask].index[0]
-        paciente = df.at[idx, 'paciente']
-        telefone_original = df.at[idx, 'telefone']
-        print(f"✅ Paciente encontrado: {paciente} (tel: {telefone_original})")
-        
-        # Converter colunas para evitar warnings
-        for col in ['disponivel', 'paciente', 'telefone', 'status_confirmacao']:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
+        paciente = dados.get('paciente', '')
+        telefone_original = dados.get('telefone', telefone)
+        print(f"✅ Paciente encontrado: {paciente} (linha {linha})")
         
         if resposta == '1':
             # Confirmar
-            df.at[idx, 'status_confirmacao'] = 'CONFIRMADO'
-            salvar_excel(df)
-            dados_sistema['metricas']['confirmados'] += 1
+            sheets_client.atualizar_status(linha, 'CONFIRMADO')
             
             msg = MensagensSUS.consulta_confirmada(paciente)
             print(f"📤 Enviando confirmação para {telefone_original}")
@@ -470,12 +275,7 @@ def processar_resposta(telefone, resposta):
             
         elif resposta == '2':
             # Cancelar e liberar vaga
-            df.at[idx, 'disponivel'] = 'SIM'
-            df.at[idx, 'paciente'] = ''
-            df.at[idx, 'telefone'] = ''
-            df.at[idx, 'status_confirmacao'] = 'CANCELADO'
-            salvar_excel(df)
-            dados_sistema['metricas']['cancelados'] += 1
+            sheets_client.liberar_vaga(linha)
             
             msg = MensagensSUS.consulta_cancelada(paciente)
             print(f"📤 Enviando cancelamento para {telefone_original}")
@@ -487,83 +287,12 @@ def processar_resposta(telefone, resposta):
         import traceback
         traceback.print_exc()
 
-# ==================== POLLING ====================
-
-def polling_whatsapp():
-    """Verifica mensagens a cada 15 segundos"""
-    print("🔄 Polling iniciado")
-    
-    while True:
-        try:
-            time.sleep(15)
-            
-            url = os.environ.get('EVOLUTION_API_URL', '')
-            key = os.environ.get('EVOLUTION_API_KEY', '')
-            instance = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
-            
-            if not url or not key:
-                continue
-            
-            if not url.startswith('http'):
-                url = f'https://{url}'
-            
-            print(f"🔍 Polling: Buscando mensagens...")
-            
-            # Tentar endpoint de mensagens recentes
-            resp = requests.get(
-                f"{url}/chat/findMessages/{instance}",
-                headers={'apikey': key, 'Content-Type': 'application/json'},
-                params={'limit': 10},
-                timeout=10
-            )
-            
-            print(f"📡 Polling status: {resp.status_code}")
-            
-            if resp.status_code != 200:
-                print(f"⚠️ Polling falhou: {resp.text[:100] if resp.text else 'sem resposta'}")
-                continue
-            
-            dados = resp.json()
-            print(f"📬 Dados recebidos: {type(dados)} - {str(dados)[:200]}")
-            
-            msgs = dados if isinstance(dados, list) else dados.get('messages', dados.get('data', []))
-            
-            for msg in msgs:
-                key_data = msg.get('key', {})
-                msg_id = key_data.get('id')
-                
-                if msg_id in mensagens_processadas or key_data.get('fromMe'):
-                    continue
-                
-                mensagens_processadas.add(msg_id)
-                
-                numero = key_data.get('remoteJid', '').replace('@s.whatsapp.net', '')
-                
-                # Texto pode estar em diferentes lugares
-                message = msg.get('message', {})
-                texto = (
-                    message.get('conversation') or
-                    message.get('extendedTextMessage', {}).get('text') or
-                    ''
-                ).strip()
-                
-                if texto in ['1', '2']:
-                    print(f"📱 RESPOSTA: {numero} -> '{texto}'")
-                    Thread(target=processar_resposta, args=(numero, texto)).start()
-            
-            # Limpar cache
-            if len(mensagens_processadas) > 100:
-                mensagens_processadas.clear()
-                
-        except Exception as e:
-            print(f"⚠️ Polling erro: {e}")
-            time.sleep(30)
-
 # ==================== INICIALIZAÇÃO ====================
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🏥 SISTEMA SUS - Hackapel 2025 v3.0")
+    print("🏥 SISTEMA SUS - Hackapel 2025 v4.0")
+    print("📊 Google Sheets + WhatsApp + TTS")
     print("="*60)
     
     # Detectar Railway
@@ -572,14 +301,13 @@ if __name__ == '__main__':
         os.environ['PUBLIC_URL'] = railway
         print(f"🌐 URL: https://{railway}")
     
-    # Verificar Excel
-    df = carregar_excel()
-    if df is not None:
-        print(f"✅ Excel: {len(df)} horários")
+    # Status Google Sheets
+    if sheets_client.conectado:
+        status = sheets_client.status_planilha()
+        print(f"✅ Google Sheets: {status.get('total_horarios', 0)} horários")
+    else:
+        print("⚠️ Google Sheets: Não conectado")
     
-    # Iniciar polling
-    Thread(target=polling_whatsapp, daemon=True).start()
-    print("✅ Polling WhatsApp ativo (15s)")
     print("🔊 TTS ativo em todas mensagens")
     
     port = int(os.environ.get('PORT', 5000))
