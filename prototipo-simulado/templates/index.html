@@ -239,10 +239,7 @@
             <h1>Painel do Operador</h1>
             <div style="display: flex; gap: 0.5rem;">
                 <a href="/whatsapp-config" class="btn" style="background: #25D366; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
-                    🟢 WhatsApp Real
-                </a>
-                <a href="/simulador" class="btn" style="background: #fafafa; border: 1px solid #d4d4d4; color: #1a1a1a; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
-                    💬 Simulador
+                    🟢 WhatsApp
                 </a>
                 <button class="btn" style="background: #fafafa; border: 1px solid #d4d4d4;" onclick="atualizarDados()">Atualizar</button>
             </div>
@@ -308,10 +305,6 @@
                     <div class="form-group">
                         <label>Telefone (WhatsApp)</label>
                         <input type="tel" id="telefone" placeholder="11999887766" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Data de Nascimento</label>
-                        <input type="date" id="data-nascimento" required>
                     </div>
                     <div class="form-group">
                         <label>Tipo de Exame</label>
@@ -484,7 +477,6 @@
             const dados = {
                 nome: document.getElementById('nome').value,
                 telefone: document.getElementById('telefone').value,
-                data_nascimento: document.getElementById('data-nascimento').value,
                 exame: document.getElementById('exame').value
             };
             

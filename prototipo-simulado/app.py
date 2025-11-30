@@ -85,23 +85,14 @@ def agendar():
     data = request.json
     nome = data.get("nome", "").strip()
     telefone = data.get("telefone", "").strip()
-    data_nascimento = data.get("data_nascimento", "").strip()
     exame = data.get("exame", "").strip()
     
-    if not all([nome, telefone, exame, data_nascimento]):
+    if not all([nome, telefone, exame]):
         return jsonify({"erro": "Preencha todos os campos"}), 400
     
     # Verificar conexão com Google Sheets
     if not sheets_client.conectado:
         return jsonify({"erro": "Google Sheets não conectado. Configure as credenciais."}), 400
-    
-    # Calcular idade
-    try:
-        nasc = datetime.strptime(data_nascimento, "%Y-%m-%d")
-        hoje = datetime.now()
-        idade = hoje.year - nasc.year - ((hoje.month, hoje.day) < (nasc.month, nasc.day))
-    except:
-        return jsonify({"erro": "Data inválida"}), 400
     
     # Buscar vaga no Google Sheets
     linha, info = sheets_client.buscar_vaga(exame)
@@ -118,7 +109,6 @@ def agendar():
         "id": linha,
         "paciente": nome, 
         "telefone": telefone, 
-        "idade": idade,
         "exame": exame, 
         "clinica": info.get("clinica", ""),
         "data": info.get("data", ""), 
@@ -129,21 +119,13 @@ def agendar():
     # Criar mensagem
     orientacoes = gerar_orientacoes(exame)
     mensagem = MensagensSUS.agendamento_confirmado(
-        nome, exame, info.get('data', ''), info.get('horario', ''), info.get('clinica', ''),
-        idade if idade >= 60 else None
+        nome, exame, info.get('data', ''), info.get('horario', ''), info.get('clinica', '')
     )
     if orientacoes:
         mensagem += f"\n\n{orientacoes}"
     
     # Enviar WhatsApp + TTS
     whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
-    
-    # Áudio extra para idosos
-    if idade >= 60:
-        audio = gerar_audio_idoso(nome, idade, exame, info.get('data', ''), info.get('horario', ''), info.get('clinica', ''))
-        if audio:
-            url = f"{request.host_url}static/audios/{audio}"
-            whatsapp_client.enviar_audio(telefone, url)
     
     return jsonify({
         "sucesso": True, 
