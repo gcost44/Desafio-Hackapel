@@ -1,1293 +1,445 @@
 """
-🎮 PROTÓTIPO SIMULADO - Servidor Flask
-Sistema de Agendamentos SUS com IA
-Fluxo: Operador → Busca Excel → Envia WhatsApp → Lembretes Automáticos
-
-Autor: Hackapel 2025
-Versão: 2.0 - Fluxo Operador
+🏥 SISTEMA DE AGENDAMENTOS SUS - Hackapel 2025
+Versão 3.0 - WhatsApp com TTS (Text-to-Speech)
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import pandas as pd
-import json
-import random
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from threading import Thread
 import time
 import google.generativeai as genai
 from gtts import gTTS
 import uuid
-from whatsapp_integration import whatsapp_client, TextToSpeech, MensagensSUS
+from whatsapp_integration import whatsapp_client, MensagensSUS
 import requests
 
 app = Flask(__name__)
 CORS(app)
 
-# Controle de mensagens já processadas
-mensagens_processadas = set()
+# ==================== CONFIGURAÇÃO ====================
 
-# Configurar API do Gemini
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'AIzaSyAC68hEyU437imZXY7CsCn0Jp41cygRvPc')
-genai.configure(api_key=GEMINI_API_KEY)
-modelo_gemini = genai.GenerativeModel('gemini-2.5-flash')
-
-# Caminhos (funciona local e Railway)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(BASE_DIR, 'agenda_clinicas.xlsx')
-STATIC_DIR = os.path.join(BASE_DIR, 'static')
-AUDIO_PATH = os.path.join(STATIC_DIR, 'audios')
+AUDIO_PATH = os.path.join(BASE_DIR, 'static', 'audios')
 
-# Criar pastas se não existirem
-os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(AUDIO_PATH, exist_ok=True)
 
-# Dados simulados em memória
+# Gemini API
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    modelo_gemini = genai.GenerativeModel('gemini-2.5-flash')
+else:
+    modelo_gemini = None
+
+# Controle
+mensagens_processadas = set()
 dados_sistema = {
-    "metricas": {
-        "agendados": 0,
-        "confirmados": 0,
-        "cancelados": 0,
-        "lembretes_enviados": 0,
-        "taxa_confirmacao": 0
-    },
-    "agendamentos": [],  # Agendamentos confirmados
-    "notificacoes": [],  # Notificações para o operador
-    "excel_carregado": False  # Status do Excel
+    "metricas": {"agendados": 0, "confirmados": 0, "cancelados": 0},
+    "agendamentos": [],
+    "excel_carregado": False
 }
 
-# Carregar/Criar Excel de agendamentos
+# ==================== EXCEL ====================
+
 def carregar_excel():
-    """Carrega Excel se existir - trata telefones em notação científica"""
-    if os.path.exists(EXCEL_PATH):
-        # Carregar com dtype específico para telefone como string
-        df = pd.read_excel(EXCEL_PATH, dtype={'telefone': str})
-        
-        # Limpar telefones - remover notação científica, .0 e apóstrofos
-        if 'telefone' in df.columns:
-            df['telefone'] = df['telefone'].apply(
-                lambda x: str(x).replace('.0', '').replace("'", '').strip() 
-                if pd.notna(x) and str(x) != 'nan' else ''
-            )
-        
-        dados_sistema["excel_carregado"] = True
-        return df
-    else:
+    """Carrega planilha de horários"""
+    if not os.path.exists(EXCEL_PATH):
         dados_sistema["excel_carregado"] = False
         return None
-
-def salvar_excel(df):
-    """Salva DataFrame no Excel com telefones em formato de texto"""
-    # Substituir NaN por string vazia antes de salvar
-    df = df.fillna('')
     
-    # CRÍTICO: Limpar e converter telefone para string pura (sem apóstrofo)
+    df = pd.read_excel(EXCEL_PATH, dtype={'telefone': str})
     if 'telefone' in df.columns:
         df['telefone'] = df['telefone'].apply(
             lambda x: str(x).replace('.0', '').replace("'", '').strip() 
-            if x and str(x) != '' and str(x) != 'nan' else ''
+            if pd.notna(x) and str(x) != 'nan' else ''
+        )
+    dados_sistema["excel_carregado"] = True
+    return df
+
+def salvar_excel(df):
+    """Salva planilha com telefones em formato texto"""
+    df = df.fillna('')
+    if 'telefone' in df.columns:
+        df['telefone'] = df['telefone'].apply(
+            lambda x: str(x).replace('.0', '').replace("'", '').strip() 
+            if x and str(x) not in ['', 'nan'] else ''
         )
     
-    # Salvar com engine openpyxl
     with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
-        
-        # Formatar coluna telefone como TEXTO (evita notação científica)
-        worksheet = writer.sheets['Sheet1']
+        ws = writer.sheets['Sheet1']
         if 'telefone' in df.columns:
-            tel_col_idx = df.columns.get_loc('telefone') + 1  # Excel é 1-indexed
-            for row in range(2, len(df) + 2):  # Começar da linha 2 (após header)
-                cell = worksheet.cell(row=row, column=tel_col_idx)
-                cell.number_format = '@'  # Formato de texto
-                # Forçar valor como string
-                if cell.value and str(cell.value).strip():
+            col = df.columns.get_loc('telefone') + 1
+            for row in range(2, len(df) + 2):
+                cell = ws.cell(row=row, column=col)
+                cell.number_format = '@'
+                if cell.value:
                     cell.value = str(cell.value)
     
     dados_sistema["excel_carregado"] = True
-    print("✅ Excel salvo com telefones em formato de texto")
 
-# Educação em Saúde - Orientações por especialidade usando Gemini
-def gerar_orientacoes_educativas(exame):
-    """Gera orientações preventivas e educativas por tipo de exame usando IA Gemini"""
-    
-    print(f"\n🤖 Gerando orientação via Gemini para: {exame}")
+# ==================== IA GEMINI ====================
+
+def gerar_orientacoes(exame):
+    """Gera orientações educativas com IA"""
+    if not modelo_gemini:
+        return ""
     
     try:
-        prompt = f"""Você é um médico especialista em {exame} trabalhando no SUS.
+        prompt = f"""Você é um médico do SUS. Crie orientações CURTAS para consulta de {exame}.
+Formato:
+📋 O que levar: [3 itens]
+⚠️ Jejum: [Sim/Não]
+💡 Dica preventiva específica de {exame}
 
-Crie orientações ESPECÍFICAS E DETALHADAS para um paciente que vai fazer consulta de {exame}.
-
-IMPORTANTE: As dicas preventivas devem ser EXCLUSIVAS da área de {exame}. 
-Por exemplo:
-- Se for Cardiologista: fale de pressão arterial, colesterol, dor no peito
-- Se for Dermatologista: fale de protetor solar, câncer de pele, manchas
-- Se for Nutricionista: fale de alimentação balanceada, dieta, controle de peso
-- Se for Oftalmologista: fale de saúde dos olhos, fadiga visual, uso de óculos
-
-NÃO use dicas genéricas como "beba água" ou "pratique exercícios" que servem para tudo.
-
-Formato EXATO (copie e preencha):
-
-💙 ORIENTAÇÕES - {exame.upper()}
-
-📋 O que levar:
-• [Item 1 específico de {exame}]
-• [Item 2 específico de {exame}]
-• [Item 3 específico de {exame}]
-
-⚠️ Jejum: [Sim/Não e detalhes]
-🏃 Chegue [X] minutos antes
-
-💡 DICAS PREVENTIVAS - {exame.upper()}:
-• [Dica preventiva específica 1 de {exame}]
-• [Dica preventiva específica 2 de {exame}]
-• [Dica preventiva específica 3 de {exame}]
-• [Dica preventiva específica 4 de {exame}]
-
-Seja específico, use linguagem simples, máximo 120 palavras."""
-
-        print(f"📤 Enviando prompt para Gemini...")
+Máximo 50 palavras."""
+        
         resposta = modelo_gemini.generate_content(prompt)
-        texto = resposta.text.strip()
-        print(f"✅ Resposta recebida: {len(texto)} caracteres")
-        return texto
-        
-    except Exception as e:
-        print(f"❌ ERRO ao chamar Gemini API: {type(e).__name__} - {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Retorna erro visível
-        return f"""
-❌ ERRO - Não foi possível gerar orientação com IA
+        return resposta.text.strip()
+    except:
+        return ""
 
-Tipo de erro: {type(e).__name__}
-Detalhes: {str(e)[:100]}
+# ==================== ÁUDIO IDOSOS ====================
 
-Para consulta de {exame}, consulte a unidade de saúde.
-"""
-
-# Gerar áudio para idosos
 def gerar_audio_idoso(nome, idade, exame, data, horario, clinica):
-    """Gera áudio explicativo para pacientes idosos usando Google TTS"""
+    """Gera áudio especial para idosos (60+)"""
     try:
-        # Texto do áudio (sem emojis, formatado para fala)
-        texto_audio = f"""
-Olá {nome}! 
-Este é um áudio especial do sistema de agendamentos do SUS.
-
-Sua consulta de {exame} foi confirmada com sucesso.
-
-A consulta será no dia {data}, às {horario}, no local {clinica}.
-
-Como você tem {idade} anos, você tem direito a atendimento prioritário.
-
-Anote o que você deve levar:
-- Documento de identidade RG ou CPF
-- Cartão do SUS
-- Exames anteriores, se tiver
-- Lista de remédios que você toma
-
-Importante: chegue 15 minutos antes do horário.
-
-Você vai receber lembretes automáticos:
-- 7 dias antes
-- 5 dias antes  
-- 3 dias antes
-- e 24 horas antes da consulta
-
-Se tiver alguma dúvida, ligue para o telefone (11) 3000-0000.
-
-Até logo e cuide bem da sua saúde!
-"""
+        texto = f"""Olá {nome}! Sua consulta de {exame} foi confirmada para {data} às {horario} 
+no local {clinica}. Como você tem {idade} anos, tem direito a atendimento prioritário. 
+Leve RG, Cartão SUS e exames anteriores. Chegue 15 minutos antes."""
         
-        # Gerar áudio com Google TTS (português Brasil)
-        print(f"🎤 Gerando áudio para {nome} ({idade} anos)...")
-        tts = gTTS(text=texto_audio, lang='pt', slow=False)
-        
-        # Salvar com nome único
-        audio_filename = f"audio_idoso_{uuid.uuid4().hex[:8]}.mp3"
-        audio_path = os.path.join(AUDIO_PATH, audio_filename)
-        tts.save(audio_path)
-        
-        print(f"✅ Áudio gerado: {audio_filename}")
-        return audio_filename
-        
-    except Exception as e:
-        print(f"❌ Erro ao gerar áudio: {e}")
+        filename = f"idoso_{uuid.uuid4().hex[:8]}.mp3"
+        tts = gTTS(text=texto, lang='pt', slow=False)
+        tts.save(os.path.join(AUDIO_PATH, filename))
+        return filename
+    except:
         return None
 
-# Sistema de lembretes automáticos
-def verificar_lembretes():
-    """Thread que verifica e envia lembretes programados"""
-    while True:
-        agora = datetime.now()
-        
-        for agendamento in dados_sistema["agendamentos"]:
-            if agendamento["status"] != "confirmado":
-                continue
-            
-            # Converter data do agendamento
-            data_agendamento = datetime.strptime(agendamento["data"], "%d/%m/%Y")
-            dias_faltando = (data_agendamento - agora).days
-            
-            # Verificar se precisa enviar lembrete
-            if dias_faltando in [7, 5, 3, 1]:  # 7, 5, 3 dias e 24h antes
-                # Verificar se já enviou esse lembrete
-                chave_lembrete = f"{agendamento['id']}_D{dias_faltando}"
-                if chave_lembrete not in agendamento.get("lembretes_enviados", []):
-                    enviar_lembrete_automatico(agendamento, dias_faltando)
-                    
-                    if "lembretes_enviados" not in agendamento:
-                        agendamento["lembretes_enviados"] = []
-                    agendamento["lembretes_enviados"].append(chave_lembrete)
-                    
-                    dados_sistema["metricas"]["lembretes_enviados"] += 1
-        
-        # Verificar a cada 1 hora (em produção seria menor)
-        time.sleep(3600)
-
-def enviar_lembrete_automatico(agendamento, dias_faltando):
-    """Envia lembrete automático para o paciente com orientações educativas"""
-    if dias_faltando == 1:
-        periodo = "24 horas"
-        dica_extra = """
-⚠️ LEMBRE-SE DE LEVAR:
-• Cartão SUS
-• Documento com foto
-• Exames anteriores
-• Lista de medicamentos
-
-Chegue 15 minutos antes!"""
-    elif dias_faltando == 3:
-        periodo = f"{dias_faltando} dias"
-        dica_extra = """
-💡 PREPARE-SE:
-• Organize seus documentos
-• Separe exames anteriores
-• Anote suas dúvidas para o médico"""
-    else:
-        periodo = f"{dias_faltando} dias"
-        dica_extra = ""
-    
-    mensagem = f"""🔔 LEMBRETE AUTOMÁTICO
-
-Olá, {agendamento['paciente']}!
-
-Faltam {periodo} para sua consulta:
-📅 Data: {agendamento['data']}
-⏰ Horário: {agendamento['horario']}
-🏥 Local: {agendamento['clinica']}
-👨‍⚕️ Especialidade: {agendamento['exame']}{dica_extra}
-
-Responda:
-1 - Confirmar presença
-2 - Preciso cancelar"""
-    
-    print(f"📱 [LEMBRETE {periodo.upper()}] {agendamento['paciente']} - {agendamento['telefone']}")
-    print(f"   Mensagem: {mensagem[:50]}...")
-    
-    # Em produção, aqui integraria com API WhatsApp
-
-# ==================== ROTAS ====================
+# ==================== ROTAS PRINCIPAIS ====================
 
 @app.route('/')
 def index():
-    """Painel do operador"""
-    return render_template('index.html', 
-                         metricas=dados_sistema["metricas"],
-                         notificacoes=dados_sistema["notificacoes"][-5:])  # Últimas 5
+    return render_template('index.html', metricas=dados_sistema["metricas"])
 
 @app.route('/api/agendar', methods=['POST'])
-def agendar_paciente():
-    """
-    FLUXO PRINCIPAL: Operador envia nome + exame
-    Sistema busca vaga no Excel e envia WhatsApp automaticamente
-    """
+def agendar():
+    """Cadastra paciente e envia WhatsApp + Áudio"""
     data = request.json
     nome = data.get("nome", "").strip()
     telefone = data.get("telefone", "").strip()
     data_nascimento = data.get("data_nascimento", "").strip()
     exame = data.get("exame", "").strip()
     
-    if not nome or not telefone or not exame or not data_nascimento:
+    if not all([nome, telefone, exame, data_nascimento]):
         return jsonify({"erro": "Preencha todos os campos"}), 400
     
     # Calcular idade
     try:
-        nascimento = datetime.strptime(data_nascimento, "%Y-%m-%d")
+        nasc = datetime.strptime(data_nascimento, "%Y-%m-%d")
         hoje = datetime.now()
-        idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
+        idade = hoje.year - nasc.year - ((hoje.month, hoje.day) < (nasc.month, nasc.day))
     except:
-        return jsonify({"erro": "Data de nascimento inválida"}), 400
-    
-    # Verificar se tem Excel carregado
-    if not dados_sistema["excel_carregado"]:
-        return jsonify({"erro": "Carregue a planilha de horários primeiro!"}), 400
+        return jsonify({"erro": "Data inválida"}), 400
     
     # Carregar Excel
     df = carregar_excel()
-    
     if df is None:
-        return jsonify({"erro": "Erro ao carregar planilha"}), 500
+        return jsonify({"erro": "Carregue a planilha primeiro"}), 400
     
-    # Buscar primeira vaga disponível para esse exame
+    # Buscar vaga
     vaga = df[(df["exame"] == exame) & (df["disponivel"] == "SIM")]
-    
     if vaga.empty:
-        return jsonify({
-            "sucesso": False,
-            "erro": f"Sem vagas disponíveis para {exame} no momento."
-        }), 404
+        return jsonify({"erro": f"Sem vagas para {exame}"}), 404
     
-    # Pegar primeira vaga
+    # Reservar vaga
     idx = vaga.index[0]
-    vaga_info = vaga.iloc[0]
+    info = vaga.iloc[0]
     
-    # Marcar como ocupada no Excel (converter tipos explicitamente)
-    df.at[idx, "disponivel"] = str("NAO")
-    df.at[idx, "paciente"] = str(nome)
-    df.at[idx, "telefone"] = str(telefone)
-    
-    # Adicionar status de confirmação inicial como PENDENTE
+    df.at[idx, "disponivel"] = "NAO"
+    df.at[idx, "paciente"] = nome
+    df.at[idx, "telefone"] = telefone
     if 'status_confirmacao' not in df.columns:
         df['status_confirmacao'] = ''
     df.at[idx, "status_confirmacao"] = "PENDENTE"
     
-    # Salvar com tratamento de erro
-    try:
-        salvar_excel(df)
-    except PermissionError:
-        return jsonify({
-            "erro": "Erro ao salvar planilha. Feche o arquivo Excel e tente novamente."
-        }), 500
+    salvar_excel(df)
     
     # Criar agendamento
     agendamento = {
         "id": len(dados_sistema["agendamentos"]) + 1,
-        "paciente": nome,
-        "telefone": telefone,
-        "idade": idade,
-        "data_nascimento": data_nascimento,
-        "exame": exame,
-        "clinica": vaga_info["clinica"],
-        "data": vaga_info["data"],
-        "horario": vaga_info["horario"],
-        "status": "pendente",
-        "data_agendamento": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "lembretes_enviados": [],
-        "audio_url": None
+        "paciente": nome, "telefone": telefone, "idade": idade,
+        "exame": exame, "clinica": info["clinica"],
+        "data": info["data"], "horario": info["horario"],
+        "status": "pendente"
     }
-    
     dados_sistema["agendamentos"].append(agendamento)
     dados_sistema["metricas"]["agendados"] += 1
     
-    # Gerar orientações educativas por especialidade
-    orientacoes = gerar_orientacoes_educativas(exame)
-    
-    # Verificar se é idoso (60+) para enviar áudio
-    audio_idoso = ""
-    audio_filename = None
-    if idade >= 60:
-        # Gerar áudio real
-        audio_filename = gerar_audio_idoso(nome, idade, exame, vaga_info['data'], vaga_info['horario'], vaga_info['clinica'])
-        
-        if audio_filename:
-            agendamento["audio_url"] = f"/static/audios/{audio_filename}"
-            audio_idoso = f"""
-
-🔊 ÁUDIO ESPECIAL PARA VOCÊ
-
-Olá {nome}! Como você tem {idade} anos, preparamos um áudio explicativo sobre sua consulta de {exame}.
-
-🎧 [CLIQUE AQUI PARA OUVIR O ÁUDIO]
-http://localhost:5000/static/audios/{audio_filename}
-
-📝 RESUMO DO ÁUDIO:
-• Sua consulta está confirmada para {vaga_info['data']} às {vaga_info['horario']}
-• Local: {vaga_info['clinica']}
-• O que levar e como se preparar está descrito abaixo
-• Qualquer dúvida, ligue para (11) 3000-0000
-
-👵👴 Atendimento preferencial garantido!"""
-    
-    # Criar mensagem usando template
+    # Criar mensagem
+    orientacoes = gerar_orientacoes(exame)
     mensagem = MensagensSUS.agendamento_confirmado(
-        nome=nome,
-        exame=exame,
-        data=vaga_info['data'],
-        horario=vaga_info['horario'],
-        clinica=vaga_info['clinica'],
-        idade=idade if idade >= 60 else None
+        nome, exame, info['data'], info['horario'], info['clinica'],
+        idade if idade >= 60 else None
     )
-    
-    # Adicionar orientações se houver
     if orientacoes:
         mensagem += f"\n\n{orientacoes}"
     
-    # Enviar mensagem + áudio via Evolution API (TODAS as mensagens têm áudio)
-    print(f"\n📱 Enviando WhatsApp + Áudio para {telefone}...")
-    resultado_envio = whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
+    # Enviar WhatsApp + TTS
+    resultado = whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
     
-    if resultado_envio.get('sucesso'):
-        print(f"✅ Texto enviado!")
-    if resultado_envio.get('audio_enviado'):
-        print(f"🔊 Áudio TTS enviado!")
+    # Áudio extra para idosos
+    if idade >= 60:
+        audio = gerar_audio_idoso(nome, idade, exame, info['data'], info['horario'], info['clinica'])
+        if audio:
+            url = f"{request.host_url}static/audios/{audio}"
+            whatsapp_client.enviar_audio(telefone, url)
     
-    # Se for idoso (60+), enviar áudio EXTRA personalizado
-    if idade >= 60 and audio_filename:
-        audio_url_publico = f"{request.host_url}static/audios/{audio_filename}"
-        whatsapp_client.enviar_audio(telefone, audio_url_publico)
-        print(f"👴👵 IDOSO ({idade} anos) - ÁUDIO EXTRA PERSONALIZADO ENVIADO")
-    
-    print(f"\n🟢 [WhatsApp REAL] Enviado para {telefone}")
-    
-    return jsonify({
-        "sucesso": True,
-        "agendamento": agendamento,
-        "mensagem": mensagem,
-        "idoso": idade >= 60,
-        "idade": idade,
-        "audio_url": agendamento["audio_url"],
-        "tts_enviado": resultado_envio.get('audio_enviado', False)
-    })
-
-@app.route('/api/resposta-paciente', methods=['POST'])
-def resposta_paciente():
-    """Processa resposta do paciente via WhatsApp"""
-    data = request.json
-    telefone = data.get("telefone")
-    resposta = data.get("resposta", "").lower().strip()
-    
-    # Buscar agendamento
-    agendamento = next((a for a in dados_sistema["agendamentos"] 
-                       if a["telefone"] == telefone and a["status"] in ["pendente", "confirmado"]), None)
-    
-    if not agendamento:
-        return jsonify({"erro": "Agendamento não encontrado"}), 404
-    
-    # Processar resposta
-    if "1" in resposta or "sim" in resposta or "confirmo" in resposta:
-        agendamento["status"] = "confirmado"
-        dados_sistema["metricas"]["confirmados"] += 1
-        
-        mensagem_resposta = """✅ Obrigado! Presença confirmada.
-
-Lembre-se de trazer:
-• Cartão SUS
-• Documento com foto
-• Pedido médico
-
-Até lá! 😊"""
-        
-        return jsonify({
-            "sucesso": True,
-            "acao": "CONFIRMADO",
-            "mensagem": mensagem_resposta
-        })
-    
-    elif "2" in resposta or "não" in resposta or "cancelo" in resposta:
-        # CANCELAMENTO - Liberar vaga e notificar operador
-        agendamento["status"] = "cancelado"
-        dados_sistema["metricas"]["cancelados"] += 1
-        
-        # Liberar horário no Excel
-        df = carregar_excel()
-        mask = (df["paciente"] == agendamento["paciente"]) & \
-               (df["data"] == agendamento["data"]) & \
-               (df["horario"] == agendamento["horario"])
-        
-        df.loc[mask, "disponivel"] = str("SIM")
-        df.loc[mask, "paciente"] = str("")
-        df.loc[mask, "telefone"] = str("")
-        
-        try:
-            salvar_excel(df)
-        except PermissionError:
-            pass  # Não bloquear cancelamento por erro de Excel
-        
-        # NOTIFICAR OPERADOR
-        notificacao = {
-            "id": len(dados_sistema["notificacoes"]) + 1,
-            "tipo": "CANCELAMENTO",
-            "mensagem": f"🚨 {agendamento['paciente']} CANCELOU {agendamento['exame']} em {agendamento['data']} às {agendamento['horario']} - Horário liberado!",
-            "horario": datetime.now().strftime("%H:%M:%S"),
-            "data": agendamento['data'],
-            "horario_vaga": agendamento['horario'],
-            "exame": agendamento['exame'],
-            "clinica": agendamento['clinica']
-        }
-        dados_sistema["notificacoes"].append(notificacao)
-        
-        mensagem_resposta = """❌ Consulta cancelada com sucesso.
-
-O horário foi liberado para outro paciente.
-
-Para reagendar: (11) 3000-0000"""
-        
-        return jsonify({
-            "sucesso": True,
-            "acao": "CANCELADO",
-            "mensagem": mensagem_resposta
-        })
-    
-    else:
-        return jsonify({
-            "mensagem": """🤔 Não entendi. Responda:
-1 - Confirmar
-2 - Cancelar"""
-        })
-
-@app.route('/api/notificacoes')
-def api_notificacoes():
-    """Retorna notificações para o operador"""
-    return jsonify(dados_sistema["notificacoes"][-10:])  # Últimas 10
-
-@app.route('/api/metricas')
-def api_metricas():
-    """Retorna métricas do sistema"""
-    # Calcular taxa de confirmação
-    if dados_sistema["metricas"]["agendados"] > 0:
-        taxa = dados_sistema["metricas"]["confirmados"] / dados_sistema["metricas"]["agendados"]
-        dados_sistema["metricas"]["taxa_confirmacao"] = round(taxa * 100, 1)
-    
-    return jsonify(dados_sistema["metricas"])
-
-@app.route('/api/agendamentos')
-def api_agendamentos():
-    """Lista agendamentos recentes"""
-    return jsonify(dados_sistema["agendamentos"][-20:])  # Últimos 20
+    return jsonify({"sucesso": True, "agendamento": agendamento})
 
 @app.route('/api/upload-excel', methods=['POST'])
 def upload_excel():
-    """Upload da planilha de horários pelo operador - Junta com planilhas anteriores"""
+    """Upload de planilha"""
     if 'file' not in request.files:
-        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
+        return jsonify({"erro": "Nenhum arquivo"}), 400
     
     file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"erro": "Arquivo vazio"}), 400
-    
     if not file.filename.endswith(('.xlsx', '.xls')):
-        return jsonify({"erro": "Arquivo deve ser Excel (.xlsx ou .xls)"}), 400
+        return jsonify({"erro": "Arquivo deve ser Excel"}), 400
     
     try:
-        # Ler nova planilha
         df_novo = pd.read_excel(file)
+        colunas = ["clinica", "exame", "data", "horario", "disponivel"]
+        if not all(c in df_novo.columns for c in colunas):
+            return jsonify({"erro": f"Faltam colunas: {colunas}"}), 400
         
-        # Validar estrutura
-        colunas_necessarias = ["clinica", "exame", "data", "horario", "disponivel"]
+        for col in ["paciente", "telefone", "status_confirmacao"]:
+            if col not in df_novo.columns:
+                df_novo[col] = ""
         
-        if not all(col in df_novo.columns for col in colunas_necessarias):
-            return jsonify({
-                "erro": f"Planilha deve ter as colunas: {', '.join(colunas_necessarias)}"
-            }), 400
-        
-        # Adicionar colunas se não existirem
-        if "paciente" not in df_novo.columns:
-            df_novo["paciente"] = ""
-        if "telefone" not in df_novo.columns:
-            df_novo["telefone"] = ""
-        
-        # Garantir que colunas sejam string
-        df_novo["paciente"] = df_novo["paciente"].astype(str)
-        df_novo["telefone"] = df_novo["telefone"].astype(str)
-        df_novo["disponivel"] = df_novo["disponivel"].astype(str)
-        
-        # Remover duplicatas INTERNAS da nova planilha primeiro
-        df_novo_limpo = df_novo.drop_duplicates(subset=['clinica', 'exame', 'data', 'horario'], keep='first')
-        duplicatas_internas = len(df_novo) - len(df_novo_limpo)
-        
-        # Verificar se já existe planilha anterior
+        # Juntar com existente se houver
         df_existente = carregar_excel()
-        
-        if df_existente is not None and len(df_existente) > 0:
-            # JUNTAR com planilha existente
-            # Criar chaves únicas para comparação
-            df_existente['_chave'] = (df_existente['clinica'].astype(str) + '|' + 
-                                     df_existente['exame'].astype(str) + '|' + 
-                                     df_existente['data'].astype(str) + '|' + 
-                                     df_existente['horario'].astype(str))
+        if df_existente is not None:
+            df_existente['_key'] = df_existente.apply(
+                lambda r: f"{r['clinica']}|{r['exame']}|{r['data']}|{r['horario']}", axis=1)
+            df_novo['_key'] = df_novo.apply(
+                lambda r: f"{r['clinica']}|{r['exame']}|{r['data']}|{r['horario']}", axis=1)
             
-            df_novo_limpo['_chave'] = (df_novo_limpo['clinica'].astype(str) + '|' + 
-                                       df_novo_limpo['exame'].astype(str) + '|' + 
-                                       df_novo_limpo['data'].astype(str) + '|' + 
-                                       df_novo_limpo['horario'].astype(str))
-            
-            # Adicionar apenas horários novos (que não existem)
-            chaves_existentes = set(df_existente['_chave'].values)
-            mask_novos = ~df_novo_limpo['_chave'].isin(chaves_existentes)
-            df_adicionar = df_novo_limpo[mask_novos].copy()
-            
-            # Remover coluna auxiliar
-            df_existente = df_existente.drop(columns=['_chave'])
-            df_adicionar = df_adicionar.drop(columns=['_chave'])
-            
-            # Concatenar
-            df_final = pd.concat([df_existente, df_adicionar], ignore_index=True)
-            
-            horarios_adicionados = len(df_adicionar)
-            horarios_duplicados = len(df_novo_limpo) - len(df_adicionar) + duplicatas_internas
+            novos = df_novo[~df_novo['_key'].isin(df_existente['_key'])]
+            df_final = pd.concat([
+                df_existente.drop(columns=['_key']), 
+                novos.drop(columns=['_key'])
+            ], ignore_index=True)
         else:
-            # Primeira planilha
-            df_final = df_novo_limpo
-            horarios_adicionados = len(df_novo_limpo)
-            horarios_duplicados = duplicatas_internas
+            df_final = df_novo
         
-        # Salvar planilha consolidada
         salvar_excel(df_final)
-        
-        total_vagas = len(df_final[df_final["disponivel"] == "SIM"])
+        vagas = len(df_final[df_final["disponivel"] == "SIM"])
         
         return jsonify({
             "sucesso": True,
-            "mensagem": f"✅ Planilha adicionada com sucesso!",
             "total_horarios": len(df_final),
-            "vagas_disponiveis": total_vagas,
-            "horarios_adicionados": horarios_adicionados,
-            "horarios_duplicados": horarios_duplicados
+            "vagas_disponiveis": vagas
         })
-        
     except Exception as e:
-        return jsonify({"erro": f"Erro ao processar planilha: {str(e)}"}), 500
+        return jsonify({"erro": str(e)}), 500
 
 @app.route('/api/status-excel')
 def status_excel():
-    """Verifica se Excel está carregado"""
-    if dados_sistema["excel_carregado"]:
-        df = carregar_excel()
-        total = len(df)
-        disponiveis = len(df[df["disponivel"] == "SIM"])
-        ocupadas = len(df[df["disponivel"] != "SIM"])
-        
-        return jsonify({
-            "carregado": True,
-            "total_horarios": total,
-            "vagas_disponiveis": disponiveis,
-            "vagas_ocupadas": ocupadas
-        })
-    else:
-        return jsonify({
-            "carregado": False,
-            "mensagem": "Nenhuma planilha carregada"
-        })
-
-@app.route('/api/limpar-excel', methods=['POST'])
-def limpar_excel():
-    """Remove toda a planilha do sistema"""
-    try:
-        if os.path.exists(EXCEL_PATH):
-            os.remove(EXCEL_PATH)
-        dados_sistema["excel_carregado"] = False
-        return jsonify({
-            "sucesso": True,
-            "mensagem": "Planilha removida com sucesso"
-        })
-    except Exception as e:
-        return jsonify({"erro": f"Erro ao remover planilha: {str(e)}"}), 500
-
-@app.route('/simulador')
-def simulador():
-    """Interface de simulação de conversa WhatsApp"""
-    return render_template('simulador.html')
-
-@app.route('/api/simulador/conversas')
-def listar_conversas():
-    """Lista todos os agendamentos para simulação"""
-    conversas = []
-    for ag in dados_sistema["agendamentos"]:
-        conversas.append({
-            "id": ag["id"],
-            "paciente": ag["paciente"],
-            "telefone": ag["telefone"],
-            "exame": ag["exame"],
-            "data": ag["data"],
-            "horario": ag["horario"],
-            "status": ag["status"]
-        })
-    return jsonify(conversas)
-
-@app.route('/api/simulador/mensagem/<int:agendamento_id>')
-def obter_mensagem(agendamento_id):
-    """Obtém a mensagem inicial de agendamento"""
-    agendamento = next((a for a in dados_sistema["agendamentos"] if a["id"] == agendamento_id), None)
-    
-    if not agendamento:
-        return jsonify({"erro": "Agendamento não encontrado"}), 404
-    
-    # Regenerar orientações
-    orientacoes = gerar_orientacoes_educativas(agendamento["exame"])
-    
-    mensagem = f"""✅ AGENDAMENTO CONFIRMADO
-
-Olá, {agendamento['paciente']}!
-
-Sua consulta foi agendada:
-📅 Data: {agendamento['data']}
-⏰ Horário: {agendamento['horario']}
-🏥 Local: {agendamento['clinica']}
-👨‍⚕️ Especialidade: {agendamento['exame']}
-
-{orientacoes}
-
-📌 Lembretes automáticos:
-   • 7, 5, 3 dias e 24h antes
-
-Responda:
-1 - Confirmar
-2 - Cancelar"""
+    """Status da planilha"""
+    df = carregar_excel()
+    if df is None:
+        return jsonify({"carregado": False})
     
     return jsonify({
-        "mensagem": mensagem,
-        "paciente": agendamento['paciente'],
-        "telefone": agendamento['telefone'],
-        "status": agendamento['status'],
-        "audio_url": agendamento.get('audio_url'),
-        "idade": agendamento.get('idade')
+        "carregado": True,
+        "total_horarios": len(df),
+        "vagas_disponiveis": len(df[df["disponivel"] == "SIM"]),
+        "vagas_ocupadas": len(df[df["disponivel"] != "SIM"])
     })
 
-@app.route('/api/simulador/responder/<int:agendamento_id>', methods=['POST'])
-def responder_simulador(agendamento_id):
-    """Processa resposta do paciente no simulador"""
-    data = request.json
-    resposta = data.get("resposta", "").strip()
-    
-    agendamento = next((a for a in dados_sistema["agendamentos"] if a["id"] == agendamento_id), None)
-    
-    if not agendamento:
-        return jsonify({"erro": "Agendamento não encontrado"}), 404
-    
-    if resposta == "1" or "confirmar" in resposta.lower():
-        # Confirmar consulta
-        agendamento["status"] = "confirmado"
-        dados_sistema["metricas"]["confirmados"] += 1
-        
-        mensagem_resposta = '✅ Consulta confirmada com sucesso!\n\nVocê receberá lembretes automáticos:\n• 7 dias antes\n• 5 dias antes\n• 3 dias antes\n• 24 horas antes\n\nNos vemos em breve! 😊'
-        
-    elif resposta == "2" or "cancelar" in resposta.lower():
-        # Cancelar consulta
-        agendamento["status"] = "cancelado"
-        dados_sistema["metricas"]["cancelados"] += 1
-        
-        # Liberar vaga no Excel
-        try:
-            df = carregar_excel()
-            if df is not None:
-                # Encontrar a vaga
-                mask = (df["paciente"] == agendamento["paciente"]) & \
-                       (df["telefone"] == agendamento["telefone"]) & \
-                       (df["data"] == agendamento["data"]) & \
-                       (df["horario"] == agendamento["horario"])
-                
-                if mask.any():
-                    idx = df[mask].index[0]
-                    df.at[idx, "disponivel"] = str("SIM")
-                    df.at[idx, "paciente"] = str("")
-                    df.at[idx, "telefone"] = str("")
-                    salvar_excel(df)
-        except Exception as e:
-            print(f"Erro ao liberar vaga: {e}")
-        
-        # Notificar operador
-        dados_sistema["notificacoes"].append({
-            "tipo": "CANCELAMENTO",
-            "mensagem": f"❌ {agendamento['paciente']} cancelou {agendamento['exame']}",
-            "horario": datetime.now().strftime("%H:%M")
-        })
-        
-        mensagem_resposta = '❌ Consulta cancelada.\n\nSua vaga foi liberada para outro paciente.\n\nPrecisa reagendar? Entre em contato com a unidade de saúde.\n\n📞 Telefone: (11) 3000-0000'
-        
-    else:
-        mensagem_resposta = '😊 Por nada!\n\nQualquer dúvida, estamos à disposição.\n\nAté logo! 👋'
-    
-    return jsonify({
-        "sucesso": True,
-        "mensagem": mensagem_resposta,
-        "status": agendamento["status"]
-    })
+@app.route('/api/metricas')
+def metricas():
+    return jsonify(dados_sistema["metricas"])
+
+@app.route('/api/agendamentos')
+def agendamentos():
+    return jsonify(dados_sistema["agendamentos"][-20:])
 
 @app.route('/api/download-excel')
 def download_excel():
-    """Download da planilha consolidada"""
+    """Download da planilha"""
     if not os.path.exists(EXCEL_PATH):
-        return jsonify({"erro": "Nenhuma planilha disponível para download"}), 404
-    
-    try:
-        # Carregar, limpar NaN e salvar temporariamente
-        df = pd.read_excel(EXCEL_PATH)
-        df = df.fillna('')  # Substitui NaN por string vazia
-        
-        # Salvar versão limpa
-        temp_path = EXCEL_PATH.replace('.xlsx', '_temp.xlsx')
-        df.to_excel(temp_path, index=False)
-        
-        # Enviar arquivo
-        response = send_file(
-            temp_path,
-            as_attachment=True,
-            download_name=f'planilha_consolidada_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        
-        # Remover arquivo temporário após envio
-        @response.call_on_close
-        def cleanup():
-            try:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except:
-                pass
-        
-        return response
-    except Exception as e:
-        return jsonify({"erro": f"Erro ao baixar planilha: {str(e)}"}), 500
+        return jsonify({"erro": "Nenhuma planilha"}), 404
+    return send_file(EXCEL_PATH, as_attachment=True, 
+                    download_name=f'agendamentos_{datetime.now().strftime("%Y%m%d")}.xlsx')
 
-@app.route('/relatorios')
-def relatorios():
-    """Página de relatórios"""
-    return render_template('relatorios.html')
+@app.route('/api/limpar-excel', methods=['POST'])
+def limpar_excel():
+    """Remove planilha"""
+    if os.path.exists(EXCEL_PATH):
+        os.remove(EXCEL_PATH)
+    dados_sistema["excel_carregado"] = False
+    return jsonify({"sucesso": True})
 
-# ==================== ROTAS WHATSAPP EVOLUTION API ====================
+# ==================== WHATSAPP ====================
 
 @app.route('/api/whatsapp/status')
 def whatsapp_status():
-    """Verifica status da conexão WhatsApp"""
-    status = whatsapp_client.verificar_status_instancia()
-    return jsonify(status)
+    return jsonify(whatsapp_client.verificar_conexao())
 
 @app.route('/api/whatsapp/qrcode')
 def whatsapp_qrcode():
-    """Obtém QR Code para conectar WhatsApp"""
-    resultado = whatsapp_client.obter_qrcode()
-    return jsonify(resultado)
-
-@app.route('/api/whatsapp/criar-instancia', methods=['POST'])
-def whatsapp_criar_instancia():
-    """Cria nova instância WhatsApp"""
-    resultado = whatsapp_client.criar_instancia()
-    return jsonify(resultado)
-
-@app.route('/api/whatsapp/config')
-def whatsapp_config():
-    """Retorna configurações atuais"""
-    return jsonify({
-        "base_url": whatsapp_client.base_url,
-        "instance_name": whatsapp_client.instance_name,
-        "modo_simulacao": whatsapp_client.modo_simulacao,
-        "api_configurada": not whatsapp_client.modo_simulacao
-    })
+    return jsonify(whatsapp_client.obter_qrcode())
 
 @app.route('/whatsapp-config')
-def whatsapp_config_page():
-    """Página de configuração WhatsApp"""
+def whatsapp_config():
     return render_template('whatsapp_config.html')
 
-@app.route('/api/whatsapp/configurar-webhook', methods=['POST'])
-def whatsapp_configurar_webhook():
-    """Configura webhook na Evolution API"""
-    try:
-        data = request.get_json() or {}
-        webhook_url = data.get('webhook_url') or f"{request.host_url}webhook/whatsapp"
-        resultado = whatsapp_client.configurar_webhook(webhook_url)
-        return jsonify(resultado)
-    except Exception as e:
-        return jsonify({"sucesso": False, "erro": str(e)}), 500
+@app.route('/simulador')
+def simulador():
+    return render_template('simulador.html')
 
-@app.route('/webhook/whatsapp', methods=['POST', 'GET', 'PUT', 'DELETE', 'PATCH'])
-def webhook_whatsapp():
-    """Recebe mensagens do WhatsApp"""
-    print(f"\n🔔 WEBHOOK CHAMADO! Método: {request.method}")
-    
-    if request.method == 'GET':
-        return jsonify({"status": "webhook ativo", "url": request.url, "metodo": "GET"}), 200
-    
-    try:
-        print(f"\n🔥 WEBHOOK INICIANDO PROCESSAMENTO...")
-        print(f"Headers: {dict(request.headers)}")
-        print(f"Content-Type: {request.content_type}")
-        print(f"Data: {request.data}")
-        
-        dados = request.get_json()
-        print(f"\n{'='*60}")
-        print(f"📨 WEBHOOK RECEBIDO!")
-        print(f"{'='*60}")
-        print(f"Dados completos: {json.dumps(dados, indent=2) if dados else 'NULL'}")
-        
-        # Verificar tipo de evento
-        evento = dados.get('event') if dados else None
-        print(f"🔍 Evento: {evento}")
-        
-        if not dados or evento != 'messages.upsert':
-            print(f"⏭️ Ignorando evento: {evento}")
-            return jsonify({"status": "ignored", "evento": evento}), 200
-        
-        # Extrair dados
-        mensagem_data = dados.get('data', {})
-        key_info = mensagem_data.get('key', {})
-        mensagem_info = mensagem_data.get('message', {})
-        
-        print(f"🔍 Key info: {key_info}")
-        print(f"🔍 Message info: {mensagem_info}")
-        
-        # Ignorar mensagens enviadas por nós
-        if key_info.get('fromMe'):
-            print("⏭️ Mensagem enviada por nós, ignorando")
-            return jsonify({"status": "ignored", "motivo": "fromMe"}), 200
-        
-        # Número do remetente
-        numero_completo = key_info.get('remoteJid', '')
-        numero = numero_completo.replace('@s.whatsapp.net', '')
-        
-        # Texto da mensagem
-        texto = mensagem_info.get('conversation') or mensagem_info.get('extendedTextMessage', {}).get('text', '')
-        texto = texto.strip()
-        
-        print(f"📱 Número: {numero}")
-        print(f"💬 Mensagem: '{texto}'")
-        print(f"{'='*60}\n")
-        
-        # Processar resposta
-        if texto in ['1', '2']:
-            print(f"✅ Iniciando processamento da resposta '{texto}'")
-            Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
-        else:
-            print(f"⏭️ Mensagem '{texto}' não é 1 ou 2, ignorando")
-        
-        return jsonify({"status": "ok", "numero": numero, "texto": texto}), 200
-        
-    except Exception as e:
-        print(f"❌ ERRO NO WEBHOOK: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"status": "error", "erro": str(e)}), 500
+@app.route('/relatorios')
+def relatorios():
+    return render_template('relatorios.html')
 
-def processar_resposta_paciente(telefone, resposta):
+# ==================== PROCESSAMENTO DE RESPOSTAS ====================
+
+def processar_resposta(telefone, resposta):
     """Processa resposta 1=Confirmar ou 2=Cancelar"""
     try:
-        print(f"\n{'='*60}")
-        print(f"🔄 PROCESSANDO RESPOSTA DO PACIENTE")
-        print(f"{'='*60}")
-        print(f"📱 Telefone recebido: {telefone}")
-        print(f"💬 Resposta: {resposta}")
-        
         df = carregar_excel()
         if df is None:
-            print("❌ Planilha não encontrada")
             return
         
-        # Normalizar telefone - remover tudo que não é número
-        telefone_numeros = ''.join(c for c in str(telefone) if c.isdigit())
-        print(f"📞 Telefone recebido (números): {telefone_numeros}")
+        # Normalizar telefone
+        tel = ''.join(c for c in str(telefone) if c.isdigit())
+        if tel.startswith('55') and len(tel) > 11:
+            tel = tel[2:]
         
-        # REMOVER o 55 do início se vier (código do Brasil do WhatsApp)
-        if telefone_numeros.startswith('55') and len(telefone_numeros) > 11:
-            telefone_numeros = telefone_numeros[2:]  # Remove os 2 primeiros dígitos (55)
-            print(f"📞 Telefone sem código Brasil: {telefone_numeros}")
+        # Buscar paciente
+        df['_tel'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
+        mask = df['_tel'].str.contains(tel[-9:], na=False)
         
-        # Tentar diferentes formatos (do mais específico para o mais genérico)
-        formatos_busca = [
-            telefone_numeros,  # 53991189715 (com DDD)
-            telefone_numeros[-11:] if len(telefone_numeros) >= 11 else telefone_numeros,  # 53991189715
-            telefone_numeros[-10:] if len(telefone_numeros) >= 10 else telefone_numeros,  # 3991189715
-            telefone_numeros[-9:] if len(telefone_numeros) >= 9 else telefone_numeros,   # 991189715
-        ]
-        
-        # Remover duplicatas mantendo ordem
-        formatos_busca = list(dict.fromkeys(formatos_busca))
-        print(f"🔍 Tentando formatos: {formatos_busca}")
-        
-        # Normalizar telefones da planilha
-        df['telefone'] = df['telefone'].astype(str)
-        df['telefone_normalizado'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
-        
-        print(f"📋 Telefones na planilha (normalizados): {df['telefone_normalizado'].tolist()}")
-        
-        agendamento = None
-        formato_encontrado = None
-        
-        # Tentar cada formato
-        for formato in formatos_busca:
-            if formato:
-                mascara = df['telefone_normalizado'].str.contains(formato, na=False, regex=False)
-                resultado = df[mascara]
-                if not resultado.empty:
-                    agendamento = resultado
-                    formato_encontrado = formato
-                    print(f"✅ Encontrado com formato: {formato}")
-                    break
-            
-        if agendamento is None or agendamento.empty:
-            print(f"❌ Nenhum agendamento encontrado para telefone {telefone}")
-            print(f"   Formatos tentados: {formatos_busca}")
+        if not mask.any():
+            print(f"❌ Telefone {tel} não encontrado")
             return
         
-        print(f"✅ Agendamento encontrado!")
-        
-        idx = agendamento.index[0]
+        idx = df[mask].index[0]
         paciente = df.at[idx, 'paciente']
-        exame = df.at[idx, 'exame'] if 'exame' in df.columns else 'Consulta'
-        
-        print(f"👤 Paciente: {paciente}")
-        print(f"🏥 Exame: {exame}")
         
         if resposta == '1':
-            # CONFIRMAR
-            print(f"\n✅ CONFIRMANDO CONSULTA...")
-            
-            if 'status_confirmacao' not in df.columns:
-                print("   📝 Criando coluna status_confirmacao")
-                df['status_confirmacao'] = ''
-            
-            print(f"   📝 Atualizando status no índice {idx}")
+            # Confirmar
             df.at[idx, 'status_confirmacao'] = 'CONFIRMADO'
-            
-            print(f"   💾 Salvando planilha...")
             salvar_excel(df)
-            
-            print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['confirmados'] += 1
             
-            # Usar template de mensagem
             msg = MensagensSUS.consulta_confirmada(paciente)
-            
-            print(f"   📱 Enviando WhatsApp + Áudio...")
-            try:
-                # Envia texto + áudio automaticamente
-                resultado = whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
-                if resultado.get('sucesso'):
-                    print(f"   ✅ Texto enviado!")
-                if resultado.get('audio_enviado'):
-                    print(f"   🔊 Áudio enviado!")
-            except Exception as e:
-                print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
-                print(f"   ℹ️ Confirmação salva no sistema mesmo sem enviar WhatsApp")
-            
-            print(f"✅ CONFIRMAÇÃO CONCLUÍDA: {paciente}")
+            whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+            print(f"✅ CONFIRMADO: {paciente}")
             
         elif resposta == '2':
-            # CANCELAR
-            print(f"\n❌ CANCELANDO CONSULTA...")
-            
-            print(f"   📝 Liberando horário (índice {idx})")
+            # Cancelar e liberar vaga
             df.at[idx, 'disponivel'] = 'SIM'
             df.at[idx, 'paciente'] = ''
             df.at[idx, 'telefone'] = ''
-            
-            if 'status_confirmacao' in df.columns:
-                df.at[idx, 'status_confirmacao'] = 'CANCELADO'
-            
-            print(f"   💾 Salvando planilha...")
+            df.at[idx, 'status_confirmacao'] = 'CANCELADO'
             salvar_excel(df)
-            
-            print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['cancelados'] += 1
             
-            # Usar template de mensagem
             msg = MensagensSUS.consulta_cancelada(paciente)
-            
-            print(f"   📱 Enviando WhatsApp + Áudio...")
-            try:
-                # Envia texto + áudio automaticamente
-                resultado = whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
-                if resultado.get('sucesso'):
-                    print(f"   ✅ Texto enviado!")
-                if resultado.get('audio_enviado'):
-                    print(f"   🔊 Áudio enviado!")
-            except Exception as e:
-                print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
-                print(f"   ℹ️ Cancelamento salvo no sistema mesmo sem enviar WhatsApp")
-            
-            print(f"❌ CANCELAMENTO CONCLUÍDO: {paciente}")
+            whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+            print(f"❌ CANCELADO: {paciente}")
             
     except Exception as e:
-        print(f"❌ Erro ao processar resposta: {e}")
+        print(f"❌ Erro: {e}")
 
-# ==================== POLLING DE MENSAGENS ====================
+# ==================== POLLING ====================
 
-def verificar_mensagens_whatsapp():
-    """Verifica novas mensagens do WhatsApp periodicamente (polling)"""
-    print("\n🔄 Sistema de polling de mensagens iniciado")
-    tentativa = 0
-    ultimo_timestamp_verificado = int(time.time())  # Timestamp atual
+def polling_whatsapp():
+    """Verifica mensagens a cada 15 segundos"""
+    print("🔄 Polling iniciado")
     
     while True:
         try:
-            time.sleep(15)  # Verificar a cada 15 segundos
-            tentativa += 1
+            time.sleep(15)
             
-            # Buscar mensagens recentes
-            evolution_url = os.environ.get('EVOLUTION_API_URL', '')
-            evolution_key = os.environ.get('EVOLUTION_API_KEY', '')
+            url = os.environ.get('EVOLUTION_API_URL', '')
+            key = os.environ.get('EVOLUTION_API_KEY', '')
             instance = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
             
-            if not evolution_url or not evolution_key:
-                print(f"⚠️ [Polling {tentativa}] Variáveis não configuradas")
+            if not url or not key:
                 continue
             
-            # Garantir https://
-            if not evolution_url.startswith(('http://', 'https://')):
-                evolution_url = f'https://{evolution_url}'
+            if not url.startswith('http'):
+                url = f'https://{url}'
             
-            headers = {
-                'Content-Type': 'application/json',
-                'apikey': evolution_key
-            }
+            resp = requests.post(
+                f"{url}/chat/findMessages/{instance}",
+                headers={'apikey': key, 'Content-Type': 'application/json'},
+                json={'where': {'key': {'fromMe': False}}, 'limit': 3},
+                timeout=10
+            )
             
-            # Buscar as 3 mensagens mais recentes (independente de timestamp)
-            url = f"{evolution_url}/chat/findMessages/{instance}"
+            if resp.status_code != 200:
+                continue
             
-            print(f"\n🔍 [Polling {tentativa}] Verificando últimas 3 mensagens...")
+            dados = resp.json()
+            msgs = dados if isinstance(dados, list) else dados.get('messages', [])
             
-            response = requests.post(url, headers=headers, json={
-                'where': {
-                    'key': {
-                        'fromMe': False
-                    }
-                },
-                'limit': 3,
-                'sort': {
-                    'messageTimestamp': -1  # Ordenar do mais recente para o mais antigo
-                }
-            }, timeout=10)
-            
-            print(f"📡 Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                dados = response.json()
-                print(f"📦 Resposta: {type(dados)}")
+            for msg in msgs:
+                key_data = msg.get('key', {})
+                msg_id = key_data.get('id')
                 
-                # Evolution API pode retornar diferentes formatos
-                mensagens = dados
-                if isinstance(dados, dict):
-                    mensagens = dados.get('messages', dados.get('data', []))
+                if msg_id in mensagens_processadas or key_data.get('fromMe'):
+                    continue
                 
-                if not isinstance(mensagens, list):
-                    mensagens = [mensagens] if mensagens else []
+                mensagens_processadas.add(msg_id)
                 
-                print(f"📬 {len(mensagens)} mensagens retornadas pela API")
+                numero = key_data.get('remoteJid', '').replace('@s.whatsapp.net', '')
+                texto = msg.get('message', {}).get('conversation', '').strip()
                 
-                if isinstance(mensagens, list) and len(mensagens) > 0:
-                    mensagens_novas = 0
-                    
-                    for msg in mensagens:
-                        try:
-                            # Extrair informações
-                            key = msg.get('key', {})
-                            message = msg.get('message', {})
-                            messageTimestamp = msg.get('messageTimestamp', 0)
-                            
-                            # ID único da mensagem
-                            msg_id = key.get('id')
-                            
-                            # Verificar se já processamos
-                            if msg_id in mensagens_processadas:
-                                continue  # Pular silenciosamente se já processada
-                            
-                            # NOVA MENSAGEM encontrada!
-                            mensagens_novas += 1
-                            
-                            # Ignorar mensagens nossas
-                            if key.get('fromMe'):
-                                continue
-                            
-                            # Número do remetente
-                            numero_completo = key.get('remoteJid', '')
-                            numero = numero_completo.replace('@s.whatsapp.net', '')
-                            
-                            # Texto da mensagem
-                            texto = message.get('conversation') or message.get('extendedTextMessage', {}).get('text', '')
-                            texto = texto.strip()
-                            
-                            print(f"\n🆕 MENSAGEM NOVA!")
-                            print(f"   📱 Número: {numero}")
-                            print(f"   💬 Texto: '{texto}'")
-                            print(f"   🕐 Timestamp: {messageTimestamp}")
-                            print(f"   🆔 ID: {msg_id}")
-                            
-                            # SEMPRE marcar como processada primeiro
-                            mensagens_processadas.add(msg_id)
-                            
-                            if texto in ['1', '2']:
-                                print(f"   ✅ Processando resposta '{texto}'...")
-                                
-                                # Processar resposta
-                                Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
-                            else:
-                                print(f"   ⏭️ Mensagem '{texto}' ignorada (não é 1 ou 2)")
-                        
-                        except Exception as e:
-                            print(f"⚠️ Erro ao processar mensagem individual: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            continue
-                    
-                    if mensagens_novas > 0:
-                        print(f"✅ {mensagens_novas} mensagem(ns) nova(s) processada(s)")
-                    else:
-                        print(f"✓ Nenhuma mensagem nova")
-                        
-                    # Limpar cache de mensagens antigas (manter apenas últimas 50)
-                    if len(mensagens_processadas) > 50:
-                        # Remover metade das mais antigas
-                        mensagens_antigas = list(mensagens_processadas)[:25]
-                        for msg_id in mensagens_antigas:
-                            mensagens_processadas.discard(msg_id)
-                        print(f"🧹 Cache reduzido: {len(mensagens_processadas)} mensagens na memória")
-                else:
-                    print(f"✓ Nenhuma mensagem retornada")
-            else:
-                print(f"❌ Erro na API: {response.status_code}")
-                print(f"Resposta: {response.text[:200]}")
-        
+                if texto in ['1', '2']:
+                    print(f"📱 {numero}: '{texto}'")
+                    Thread(target=processar_resposta, args=(numero, texto)).start()
+            
+            # Limpar cache
+            if len(mensagens_processadas) > 100:
+                mensagens_processadas.clear()
+                
         except Exception as e:
-            print(f"❌ Erro no polling: {e}")
-            import traceback
-            traceback.print_exc()
-            time.sleep(30)  # Aguardar mais tempo em caso de erro
+            print(f"⚠️ Polling erro: {e}")
+            time.sleep(30)
 
 # ==================== INICIALIZAÇÃO ====================
 
 if __name__ == '__main__':
-    print("\n" + "="*70)
-    print("🏥 SISTEMA DE AGENDAMENTOS SUS v3.0 - TTS em todas mensagens")
-    print("="*70)
-    print("\n🚀 Inicializando sistema...")
+    print("\n" + "="*60)
+    print("🏥 SISTEMA SUS - Hackapel 2025 v3.0")
+    print("="*60)
     
-    # Detectar URL pública do Railway
-    railway_url = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
-    if railway_url:
-        print(f"🌐 URL Pública: https://{railway_url}")
-        os.environ['PUBLIC_URL'] = railway_url
+    # Detectar Railway
+    railway = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    if railway:
+        os.environ['PUBLIC_URL'] = railway
+        print(f"🌐 URL: https://{railway}")
     
     # Verificar Excel
     df = carregar_excel()
     if df is not None:
-        print(f"✅ Excel encontrado: {len(df)} horários")
-    else:
-        print("⚠️  Nenhuma planilha carregada - faça upload no sistema")
+        print(f"✅ Excel: {len(df)} horários")
     
-    print("\n" + "="*70)
-    print("📋 FLUXO DO SISTEMA:")
-    print("="*70)
-    print("1️⃣  Operador cadastra: Nome + Telefone + Exame")
-    print("2️⃣  Sistema BUSCA vaga na planilha + marca como PENDENTE")
-    print("3️⃣  WhatsApp TEXTO + ÁUDIO enviado para paciente")
-    print("4️⃣  Paciente responde 1 (confirma) ou 2 (cancela)")
-    print("5️⃣  Sistema atualiza planilha e envia resposta com ÁUDIO")
-    print("6️⃣  Se cancelar: Horário LIBERADO automaticamente")
-    print("="*70)
+    # Iniciar polling
+    Thread(target=polling_whatsapp, daemon=True).start()
+    print("✅ Polling WhatsApp ativo (15s)")
+    print("🔊 TTS ativo em todas mensagens")
     
-    # Iniciar polling de mensagens em background
-    polling_thread = Thread(target=verificar_mensagens_whatsapp, daemon=True)
-    polling_thread.start()
-    print("✅ Polling de mensagens WhatsApp ativado (verifica a cada 15s)")
-    print("🔊 TTS (Text-to-Speech) ativado para TODAS as mensagens\n")
-    
-    # Porta dinâmica para Railway, 5000 para local
     port = int(os.environ.get('PORT', 5000))
-    print(f"📱 Servidor: http://localhost:{port}")
-    print("="*70 + "\n")
+    print(f"📱 http://localhost:{port}")
+    print("="*60 + "\n")
     
-    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=False)
