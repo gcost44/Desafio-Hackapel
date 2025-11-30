@@ -20,9 +20,13 @@ import google.generativeai as genai
 from gtts import gTTS
 import uuid
 from whatsapp_integration import whatsapp_client
+import requests
 
 app = Flask(__name__)
 CORS(app)
+
+# Controle de mensagens já processadas
+mensagens_processadas = set()
 
 # Configurar API do Gemini
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'AIzaSyAC68hEyU437imZXY7CsCn0Jp41cygRvPc')
@@ -1015,6 +1019,100 @@ Obrigado! 🏥"""
     except Exception as e:
         print(f"❌ Erro ao processar resposta: {e}")
 
+# ==================== POLLING DE MENSAGENS ====================
+
+def verificar_mensagens_whatsapp():
+    """Verifica novas mensagens do WhatsApp periodicamente (polling)"""
+    print("\n🔄 Sistema de polling de mensagens iniciado")
+    
+    while True:
+        try:
+            time.sleep(10)  # Verificar a cada 10 segundos
+            
+            # Buscar mensagens recentes
+            evolution_url = os.environ.get('EVOLUTION_API_URL', '')
+            evolution_key = os.environ.get('EVOLUTION_API_KEY', '')
+            instance = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
+            
+            if not evolution_url or not evolution_key:
+                continue
+            
+            # Garantir https://
+            if not evolution_url.startswith(('http://', 'https://')):
+                evolution_url = f'https://{evolution_url}'
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'apikey': evolution_key
+            }
+            
+            # Buscar mensagens dos últimos 30 segundos
+            url = f"{evolution_url}/message/find/{instance}"
+            params = {
+                'limit': 50,
+                'where': {
+                    'key.fromMe': False  # Apenas mensagens recebidas
+                }
+            }
+            
+            response = requests.get(url, headers=headers, params={'limit': 50}, timeout=10)
+            
+            if response.status_code == 200:
+                mensagens = response.json()
+                
+                if isinstance(mensagens, list):
+                    for msg in mensagens:
+                        try:
+                            # Extrair informações
+                            key = msg.get('key', {})
+                            message = msg.get('message', {})
+                            messageTimestamp = msg.get('messageTimestamp', 0)
+                            
+                            # ID único da mensagem
+                            msg_id = key.get('id')
+                            
+                            # Verificar se já processamos
+                            if msg_id in mensagens_processadas:
+                                continue
+                            
+                            # Verificar se é mensagem recente (últimos 60 segundos)
+                            if isinstance(messageTimestamp, (int, float)):
+                                tempo_msg = datetime.fromtimestamp(messageTimestamp)
+                                agora = datetime.now()
+                                diferenca = (agora - tempo_msg).total_seconds()
+                                
+                                if diferenca > 60:
+                                    continue
+                            
+                            # Ignorar mensagens nossas
+                            if key.get('fromMe'):
+                                continue
+                            
+                            # Número do remetente
+                            numero_completo = key.get('remoteJid', '')
+                            numero = numero_completo.replace('@s.whatsapp.net', '')
+                            
+                            # Texto da mensagem
+                            texto = message.get('conversation') or message.get('extendedTextMessage', {}).get('text', '')
+                            texto = texto.strip()
+                            
+                            if texto in ['1', '2']:
+                                print(f"\n✅ Nova mensagem via POLLING: '{texto}' de {numero}")
+                                
+                                # Marcar como processada
+                                mensagens_processadas.add(msg_id)
+                                
+                                # Processar resposta
+                                Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
+                        
+                        except Exception as e:
+                            print(f"⚠️ Erro ao processar mensagem: {e}")
+                            continue
+        
+        except Exception as e:
+            print(f"⚠️ Erro no polling: {e}")
+            time.sleep(30)  # Aguardar mais tempo em caso de erro
+
 # ==================== INICIALIZAÇÃO ====================
 
 if __name__ == '__main__':
@@ -1042,6 +1140,11 @@ if __name__ == '__main__':
     print("="*70)
     print("\n📱 Abra no navegador: http://localhost:5000")
     print("="*70 + "\n")
+    
+    # Iniciar polling de mensagens em background
+    polling_thread = Thread(target=verificar_mensagens_whatsapp, daemon=True)
+    polling_thread.start()
+    print("✅ Polling de mensagens WhatsApp ativado (verifica a cada 10s)\n")
     
     # Porta dinâmica para Railway, 5000 para local
     port = int(os.environ.get('PORT', 5000))
