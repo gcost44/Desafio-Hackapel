@@ -68,10 +68,13 @@ class WhatsAppClient:
         print(f"   Modo: {'⚠️ SIMULAÇÃO' if self.modo_simulacao else '✅ PRODUÇÃO'}")
     
     def _formatar(self, tel):
-        """Formata telefone (remove 55)"""
+        """Formata telefone para Evolution API (com código 55 do Brasil)"""
         num = ''.join(c for c in str(tel) if c.isdigit())
-        if num.startswith('55') and len(num) > 11:
-            num = num[2:]
+        
+        # Garantir que tem código do Brasil (55)
+        if not num.startswith('55'):
+            num = '55' + num
+        
         print(f"📞 Telefone formatado: {tel} -> {num}")
         return num
     
