@@ -294,13 +294,20 @@ docker run -d \
         };
         
         async function verificarStatus() {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const statusDetails = document.getElementById('statusDetails');
+            
             try {
+                console.log('🔍 Verificando status...');
                 const response = await fetch('/api/whatsapp/status');
-                const data = await response.json();
                 
-                const indicator = document.getElementById('statusIndicator');
-                const statusText = document.getElementById('statusText');
-                const statusDetails = document.getElementById('statusDetails');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('📊 Dados recebidos:', data);
                 
                 if (data.simulacao) {
                     indicator.querySelector('.status-dot').className = 'status-dot simulacao';
@@ -308,15 +315,18 @@ docker run -d \
                     statusDetails.textContent = 'Configure Evolution API para envio real';
                 } else if (data.conectado) {
                     indicator.querySelector('.status-dot').className = 'status-dot conectado';
-                    statusText.textContent = 'WhatsApp Conectado';
+                    statusText.textContent = '🟢 WhatsApp Conectado!';
                     statusDetails.textContent = 'Pronto para enviar mensagens reais!';
                 } else {
                     indicator.querySelector('.status-dot').className = 'status-dot desconectado';
                     statusText.textContent = 'WhatsApp Desconectado';
-                    statusDetails.textContent = 'Clique em "Obter QR Code" para conectar';
+                    statusDetails.textContent = data.erro || 'Clique em "Obter QR Code" para conectar';
                 }
             } catch (error) {
-                console.error('Erro ao verificar status:', error);
+                console.error('❌ Erro ao verificar status:', error);
+                indicator.querySelector('.status-dot').className = 'status-dot desconectado';
+                statusText.textContent = 'Erro ao Verificar';
+                statusDetails.textContent = `Erro: ${error.message}`;
             }
         }
         

@@ -151,20 +151,34 @@ class WhatsAppEvolution:
         
         try:
             url = f"{self.base_url}/instance/connectionState/{self.instance_name}"
-            response = requests.get(url, headers=self.headers, timeout=5)
+            print(f"🔍 Verificando status em: {url}")
+            
+            response = requests.get(url, headers=self.headers, timeout=10)
+            print(f"📊 Status code: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                conectado = data.get('state') == 'open'
+                print(f"📱 Dados recebidos: {data}")
+                
+                # Evolution API v2 retorna diferentes formatos
+                state = data.get('state') or data.get('instance', {}).get('state')
+                conectado = state == 'open'
+                
                 return {
                     "conectado": conectado,
-                    "status": data.get('state'),
+                    "status": state,
                     "response": data
                 }
+            elif response.status_code == 404:
+                return {"conectado": False, "erro": "Instância não existe. Clique em 'Criar Instância'"}
             else:
-                return {"conectado": False, "erro": "Instância não encontrada"}
+                print(f"❌ Erro: {response.text}")
+                return {"conectado": False, "erro": f"Erro {response.status_code}: {response.text}"}
                 
+        except requests.exceptions.Timeout:
+            return {"conectado": False, "erro": "Timeout - Evolution API não responde"}
         except Exception as e:
+            print(f"❌ Exceção: {e}")
             return {"conectado": False, "erro": str(e)}
     
     def criar_instancia(self):
