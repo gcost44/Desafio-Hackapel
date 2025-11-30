@@ -38,15 +38,30 @@ class WhatsAppEvolution:
     
     def formatar_numero(self, telefone):
         """Formata número para padrão WhatsApp: 5511999999999@s.whatsapp.net"""
-        # Remove caracteres especiais
-        numero = ''.join(filter(str.isdigit, telefone))
+        # Remove caracteres especiais e espaços
+        numero = ''.join(filter(str.isdigit, str(telefone).strip()))
         
-        # Adiciona código do país se não tiver
-        if not numero.startswith('55'):
-            numero = '55' + numero
+        print(f"🔍 DEBUG - Número original: '{telefone}'")
+        print(f"🔍 DEBUG - Após limpar: '{numero}'")
+        print(f"🔍 DEBUG - Comprimento: {len(numero)} dígitos")
         
-        # Formato Evolution API
-        return f"{numero}@s.whatsapp.net"
+        # Remove 55 se já tiver (para reprocessar)
+        if numero.startswith('55'):
+            numero = numero[2:]
+            print(f"🔍 DEBUG - Removeu 55 existente: '{numero}'")
+        
+        # Valida formato brasileiro: DDD (2) + número (8 ou 9 dígitos)
+        if len(numero) < 10 or len(numero) > 11:
+            print(f"❌ ERRO - Número inválido: {len(numero)} dígitos (esperado 10-11)")
+        
+        # Adiciona código do país Brasil
+        numero_final = '55' + numero
+        print(f"🔍 DEBUG - Número final: '{numero_final}' ({len(numero_final)} dígitos)")
+        
+        resultado = f"{numero_final}@s.whatsapp.net"
+        print(f"🔍 DEBUG - JID WhatsApp: '{resultado}'")
+        
+        return resultado
     
     def enviar_mensagem_texto(self, telefone, mensagem):
         """Envia mensagem de texto simples - Evolution API v2 format"""
