@@ -52,39 +52,52 @@ class WhatsAppClient:
     
     def __init__(self):
         url = os.environ.get('EVOLUTION_API_URL', '')
-        self.base_url = f"https://{url}" if url and not url.startswith('http') else url
+        # Garantir que tem protocolo https
+        if url and not url.startswith('http'):
+            url = f"https://{url}"
+        self.base_url = url.rstrip('/') if url else ''
         self.api_key = os.environ.get('EVOLUTION_API_KEY', '')
         self.instance = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
         self.headers = {'Content-Type': 'application/json', 'apikey': self.api_key}
-        self.modo_simulacao = not self.api_key
+        self.modo_simulacao = not self.api_key or not self.base_url
         
-        if self.modo_simulacao:
-            print("⚠️ WhatsApp: modo simulação")
-        else:
-            print(f"✅ WhatsApp: {self.base_url}")
+        print(f"🔧 WhatsApp Config:")
+        print(f"   URL: {self.base_url}")
+        print(f"   Instance: {self.instance}")
+        print(f"   API Key: {'✅ Configurada' if self.api_key else '❌ Não configurada'}")
+        print(f"   Modo: {'⚠️ SIMULAÇÃO' if self.modo_simulacao else '✅ PRODUÇÃO'}")
     
     def _formatar(self, tel):
         """Formata telefone (remove 55)"""
         num = ''.join(c for c in str(tel) if c.isdigit())
         if num.startswith('55') and len(num) > 11:
             num = num[2:]
+        print(f"📞 Telefone formatado: {tel} -> {num}")
         return num
     
     def enviar_texto(self, telefone, msg):
         """Envia texto"""
         if self.modo_simulacao:
-            print(f"📱 [SIM] {telefone}: {msg[:50]}...")
-            return {"sucesso": True}
+            print(f"📱 [SIMULAÇÃO] {telefone}: {msg[:50]}...")
+            return {"sucesso": True, "simulado": True}
         
         try:
-            resp = requests.post(
-                f"{self.base_url}/message/sendText/{self.instance}",
-                headers=self.headers,
-                json={"number": self._formatar(telefone), "textMessage": {"text": msg}},
-                timeout=15
-            )
-            return {"sucesso": resp.status_code in [200, 201]}
+            numero = self._formatar(telefone)
+            url = f"{self.base_url}/message/sendText/{self.instance}"
+            payload = {"number": numero, "textMessage": {"text": msg}}
+            
+            print(f"📤 Enviando para: {url}")
+            print(f"📦 Payload: number={numero}, msg={msg[:50]}...")
+            
+            resp = requests.post(url, headers=self.headers, json=payload, timeout=15)
+            
+            print(f"📡 Status: {resp.status_code}")
+            print(f"📡 Resposta: {resp.text[:200] if resp.text else 'vazio'}")
+            
+            sucesso = resp.status_code in [200, 201]
+            return {"sucesso": sucesso, "status": resp.status_code, "resposta": resp.text[:200]}
         except Exception as e:
+            print(f"❌ Erro ao enviar: {e}")
             return {"sucesso": False, "erro": str(e)}
     
     def enviar_audio(self, telefone, url):
