@@ -350,6 +350,11 @@ def agendar_paciente():
     df.at[idx, "paciente"] = str(nome)
     df.at[idx, "telefone"] = str(telefone)
     
+    # Adicionar status de confirmação inicial como PENDENTE
+    if 'status_confirmacao' not in df.columns:
+        df['status_confirmacao'] = ''
+    df.at[idx, "status_confirmacao"] = "PENDENTE"
+    
     # Salvar com tratamento de erro
     try:
         salvar_excel(df)
