@@ -338,19 +338,41 @@ class WhatsAppEvolution:
             webhook_atual = self.verificar_webhook()
             print(f"🔍 Webhook atual: {webhook_atual}")
             
-            # Evolution API v2 - WEBHOOK POR EVENTO
+            # Evolution API v2 - Configuração completa de webhook
             payload = {
                 "enabled": True,
                 "url": webhook_url,
-                "webhookByEvents": True,  # TRUE = envia POST por evento
+                "webhookByEvents": True,
                 "webhookBase64": False,
-                "events": [
-                    "MESSAGES_UPSERT",
-                    "MESSAGES_UPDATE",
-                    "SEND_MESSAGE"
-                ]
+                "events": ["MESSAGES_UPSERT"]
             }
             
+            # Tentar endpoint alternativo primeiro
+            url_alt = f"{self.base_url}/instance/settings/{self.instance_name}"
+            settings_payload = {
+                "rejectCall": False,
+                "msgCall": "Chamadas não são aceitas",
+                "groupsIgnore": True,
+                "alwaysOnline": False,
+                "readMessages": False,
+                "readStatus": False,
+                "syncFullHistory": False,
+                "webhooks": [{
+                    "url": webhook_url,
+                    "enabled": True,
+                    "events": ["MESSAGES_UPSERT"],
+                    "webhookByEvents": True
+                }]
+            }
+            
+            print(f"🔗 Tentando configurar via settings...")
+            try:
+                resp_settings = requests.post(url_alt, json=settings_payload, headers=self.headers, timeout=10)
+                print(f"Settings response: {resp_settings.status_code} - {resp_settings.text}")
+            except Exception as e:
+                print(f"Settings falhou: {e}")
+            
+            # Configurar webhook padrão também
             url = f"{self.base_url}/webhook/set/{self.instance_name}"
             print(f"🔗 Configurando webhook Evolution API v2")
             print(f"Endpoint: {url}")
