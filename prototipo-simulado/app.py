@@ -159,11 +159,16 @@ def agendar():
     idx = vaga.index[0]
     info = vaga.iloc[0]
     
-    df.at[idx, "disponivel"] = "NAO"
-    df.at[idx, "paciente"] = nome
-    df.at[idx, "telefone"] = telefone
+    # Converter colunas para object/string para evitar warnings do pandas
+    for col in ['disponivel', 'paciente', 'telefone']:
+        df[col] = df[col].astype(str)
     if 'status_confirmacao' not in df.columns:
         df['status_confirmacao'] = ''
+    df['status_confirmacao'] = df['status_confirmacao'].astype(str)
+    
+    df.at[idx, "disponivel"] = "NAO"
+    df.at[idx, "paciente"] = str(nome)
+    df.at[idx, "telefone"] = str(telefone)
     df.at[idx, "status_confirmacao"] = "PENDENTE"
     
     salvar_excel(df)
@@ -198,7 +203,11 @@ def agendar():
             url = f"{request.host_url}static/audios/{audio}"
             whatsapp_client.enviar_audio(telefone, url)
     
-    return jsonify({"sucesso": True, "agendamento": agendamento})
+    return jsonify({
+        "sucesso": True, 
+        "agendamento": agendamento,
+        "mensagem": mensagem
+    })
 
 @app.route('/api/upload-excel', methods=['POST'])
 def upload_excel():
