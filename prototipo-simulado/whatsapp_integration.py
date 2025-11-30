@@ -49,7 +49,7 @@ class WhatsAppEvolution:
         return f"{numero}@s.whatsapp.net"
     
     def enviar_mensagem_texto(self, telefone, mensagem):
-        """Envia mensagem de texto simples"""
+        """Envia mensagem de texto simples - Evolution API v2 format"""
         if self.modo_simulacao:
             print(f"\n📱 [SIMULAÇÃO] WhatsApp para {telefone}")
             print(f"   Mensagem: {mensagem[:100]}...")
@@ -58,15 +58,21 @@ class WhatsAppEvolution:
         try:
             numero_formatado = self.formatar_numero(telefone)
             
+            # Evolution API v2 formato correto
             payload = {
                 "number": numero_formatado,
-                "text": mensagem
+                "textMessage": {
+                    "text": mensagem
+                }
             }
             
             url = f"{self.base_url}/message/sendText/{self.instance_name}"
+            print(f"📤 Enviando para: {url}")
+            print(f"📦 Payload: {payload}")
+            
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             
-            if response.status_code == 201:
+            if response.status_code == 201 or response.status_code == 200:
                 print(f"✅ Mensagem enviada para {telefone}")
                 return {"sucesso": True, "response": response.json()}
             else:
@@ -78,7 +84,7 @@ class WhatsAppEvolution:
             return {"sucesso": False, "erro": str(e)}
     
     def enviar_audio(self, telefone, audio_url):
-        """Envia áudio para WhatsApp"""
+        """Envia áudio para WhatsApp - Evolution API v2 format"""
         if self.modo_simulacao:
             print(f"\n🔊 [SIMULAÇÃO] Áudio WhatsApp para {telefone}")
             print(f"   URL: {audio_url}")
@@ -87,20 +93,25 @@ class WhatsAppEvolution:
         try:
             numero_formatado = self.formatar_numero(telefone)
             
+            # Evolution API v2 formato correto para áudio
             payload = {
                 "number": numero_formatado,
-                "audioUrl": audio_url,
-                "delay": 1200
+                "mediaMessage": {
+                    "mediatype": "audio",
+                    "media": audio_url
+                }
             }
             
-            url = f"{self.base_url}/message/sendWhatsAppAudio/{self.instance_name}"
+            url = f"{self.base_url}/message/sendMedia/{self.instance_name}"
+            print(f"🔊 Enviando áudio para: {url}")
+            
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             
-            if response.status_code == 201:
+            if response.status_code == 201 or response.status_code == 200:
                 print(f"✅ Áudio enviado para {telefone}")
                 return {"sucesso": True, "response": response.json()}
             else:
-                print(f"❌ Erro ao enviar áudio: {response.status_code}")
+                print(f"❌ Erro ao enviar áudio: {response.status_code} - {response.text}")
                 return {"sucesso": False, "erro": response.text}
                 
         except Exception as e:
