@@ -82,21 +82,27 @@ def salvar_excel(df):
     # Substituir NaN por string vazia antes de salvar
     df = df.fillna('')
     
-    # CRÍTICO: Converter telefone para string e adicionar apóstrofo para forçar texto
+    # CRÍTICO: Limpar e converter telefone para string pura (sem apóstrofo)
     if 'telefone' in df.columns:
-        df['telefone'] = df['telefone'].apply(lambda x: f"'{str(x).replace('.0', '')}" if x and str(x) != '' and str(x) != 'nan' else '')
+        df['telefone'] = df['telefone'].apply(
+            lambda x: str(x).replace('.0', '').replace("'", '').strip() 
+            if x and str(x) != '' and str(x) != 'nan' else ''
+        )
     
     # Salvar com engine openpyxl
     with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
         df.to_excel(writer, index=False)
         
-        # Formatar coluna telefone como texto
+        # Formatar coluna telefone como TEXTO (evita notação científica)
         worksheet = writer.sheets['Sheet1']
         if 'telefone' in df.columns:
             tel_col_idx = df.columns.get_loc('telefone') + 1  # Excel é 1-indexed
             for row in range(2, len(df) + 2):  # Começar da linha 2 (após header)
                 cell = worksheet.cell(row=row, column=tel_col_idx)
                 cell.number_format = '@'  # Formato de texto
+                # Forçar valor como string
+                if cell.value and str(cell.value).strip():
+                    cell.value = str(cell.value)
     
     dados_sistema["excel_carregado"] = True
     print("✅ Excel salvo com telefones em formato de texto")
