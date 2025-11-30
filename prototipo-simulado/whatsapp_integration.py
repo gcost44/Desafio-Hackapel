@@ -82,17 +82,20 @@ class WhatsAppEvolution:
             return {"sucesso": True, "simulado": True}
         
         try:
-            # Formata e pega só o número (sem @s.whatsapp.net)
-            numero_completo = self.formatar_numero(telefone)
-            numero_limpo = numero_completo.split('@')[0]  # Remove @s.whatsapp.net
+            # Normalizar telefone - remover tudo que não é número
+            telefone_str = str(telefone).strip()
+            numero = ''.join(c for c in telefone_str if c.isdigit())
+            
+            # REMOVER código 55 do Brasil se tiver (Evolution API não precisa)
+            if numero.startswith('55') and len(numero) > 11:
+                numero = numero[2:]
             
             print(f"🔍 ENVIO - Número original: '{telefone}'")
-            print(f"🔍 ENVIO - Número formatado: '{numero_completo}'")
-            print(f"🔍 ENVIO - Número limpo: '{numero_limpo}'")
+            print(f"🔍 ENVIO - Número final (sem 55): '{numero}'")
             
-            # Evolution API v2 formato correto - APENAS O NÚMERO
+            # Evolution API v2 formato correto - NÚMERO SEM CÓDIGO 55
             payload = {
-                "number": numero_limpo,
+                "number": numero,  # DDD + número (ex: 53991189715)
                 "textMessage": {
                     "text": mensagem
                 }
@@ -126,15 +129,19 @@ class WhatsAppEvolution:
             return {"sucesso": True, "simulado": True}
         
         try:
-            # Formata e pega só o número (sem @s.whatsapp.net)
-            numero_completo = self.formatar_numero(telefone)
-            numero_limpo = numero_completo.split('@')[0]
+            # Normalizar telefone - remover tudo que não é número
+            telefone_str = str(telefone).strip()
+            numero = ''.join(c for c in telefone_str if c.isdigit())
             
-            print(f"🔊 ÁUDIO - Número limpo: '{numero_limpo}'")
+            # REMOVER código 55 do Brasil se tiver
+            if numero.startswith('55') and len(numero) > 11:
+                numero = numero[2:]
             
-            # Evolution API v2 formato correto para áudio - APENAS O NÚMERO
+            print(f"🔊 ÁUDIO - Número final (sem 55): '{numero}'")
+            
+            # Evolution API v2 formato correto para áudio - NÚMERO SEM CÓDIGO 55
             payload = {
-                "number": numero_limpo,
+                "number": numero,  # DDD + número (ex: 53991189715)
                 "mediaMessage": {
                     "mediatype": "audio",
                     "media": audio_url

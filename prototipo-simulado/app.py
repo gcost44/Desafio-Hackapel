@@ -1039,20 +1039,22 @@ def processar_resposta_paciente(telefone, resposta):
             print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['confirmados'] += 1
             
-            msg = f"""✅ *Consulta Confirmada!*
+            # Mensagem curta e simples
+            msg = f"""✅ Consulta confirmada!
 
-Olá, {paciente}!
-
-Sua consulta foi confirmada com sucesso.
-
-📅 Compareça no dia e horário agendados
-📋 Leve documentos e exames anteriores
-⏰ Chegue 15 minutos antes
+Olá {paciente}, sua consulta está confirmada.
+Compareça no dia e horário agendados.
 
 Obrigado! 🏥"""
             
-            print(f"   📱 Enviando WhatsApp de confirmação...")
-            whatsapp_client.enviar_mensagem_texto(telefone, msg)
+            print(f"   📱 Tentando enviar WhatsApp...")
+            try:
+                whatsapp_client.enviar_mensagem_texto(telefone, msg)
+                print(f"   ✅ WhatsApp enviado com sucesso")
+            except Exception as e:
+                print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
+                print(f"   ℹ️ Confirmação salva no sistema mesmo sem enviar WhatsApp")
+            
             print(f"✅ CONFIRMAÇÃO CONCLUÍDA: {paciente}")
             
         elif resposta == '2':
@@ -1073,19 +1075,22 @@ Obrigado! 🏥"""
             print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['cancelados'] += 1
             
-            msg = f"""❌ *Consulta Cancelada*
+            # Mensagem curta e simples
+            msg = f"""❌ Consulta cancelada
 
-Olá, {paciente}.
-
-Sua consulta foi cancelada.
-O horário está disponível novamente.
-
-Para reagendar, entre em contato com a UBS.
+Olá {paciente}, sua consulta foi cancelada.
+Entre em contato para reagendar.
 
 Obrigado! 🏥"""
             
-            print(f"   📱 Enviando WhatsApp de cancelamento...")
-            whatsapp_client.enviar_mensagem_texto(telefone, msg)
+            print(f"   📱 Tentando enviar WhatsApp...")
+            try:
+                whatsapp_client.enviar_mensagem_texto(telefone, msg)
+                print(f"   ✅ WhatsApp enviado com sucesso")
+            except Exception as e:
+                print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
+                print(f"   ℹ️ Cancelamento salvo no sistema mesmo sem enviar WhatsApp")
+            
             print(f"❌ CANCELAMENTO CONCLUÍDO: {paciente}")
             
     except Exception as e:
