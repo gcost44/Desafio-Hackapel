@@ -114,7 +114,7 @@ class GoogleSheetsClient:
             return False
     
     def buscar_por_telefone(self, telefone):
-        """Busca paciente por telefone (últimos 8 dígitos)"""
+        """Busca paciente PENDENTE por telefone (últimos 8 dígitos)"""
         if not self.conectado:
             return None, None
         
@@ -122,12 +122,23 @@ class GoogleSheetsClient:
             dados = self.worksheet.get_all_records()
             tel_busca = ''.join(c for c in str(telefone) if c.isdigit())[-8:]
             
+            # Buscar o ÚLTIMO registro PENDENTE desse telefone
+            resultado = None
             for idx, row in enumerate(dados):
                 tel_row = ''.join(c for c in str(row.get('telefone', '')) if c.isdigit())
-                if tel_row.endswith(tel_busca):
-                    return idx + 2, row  # +2 por cabeçalho
+                status = str(row.get('status_confirmacao', '')).upper()
+                
+                if tel_row.endswith(tel_busca) and status == 'PENDENTE':
+                    resultado = (idx + 2, row)  # +2 por cabeçalho
             
-            return None, None
+            # Se não encontrou pendente, busca qualquer um com paciente
+            if resultado is None:
+                for idx, row in enumerate(dados):
+                    tel_row = ''.join(c for c in str(row.get('telefone', '')) if c.isdigit())
+                    if tel_row.endswith(tel_busca) and row.get('paciente'):
+                        resultado = (idx + 2, row)
+            
+            return resultado if resultado else (None, None)
         except Exception as e:
             print(f"❌ Erro ao buscar telefone: {e}")
             return None, None
