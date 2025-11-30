@@ -930,50 +930,79 @@ def processar_resposta_paciente(telefone, resposta):
     """Processa resposta 1=Confirmar ou 2=Cancelar"""
     try:
         print(f"\n{'='*60}")
-        print(f"🔄 PROCESSANDO RESPOSTA")
+        print(f"🔄 PROCESSANDO RESPOSTA DO PACIENTE")
         print(f"{'='*60}")
-        print(f"Telefone recebido: {telefone}")
-        print(f"Resposta: {resposta}")
+        print(f"📱 Telefone recebido: {telefone}")
+        print(f"💬 Resposta: {resposta}")
         
         df = carregar_excel()
         if df is None:
             print("❌ Planilha não encontrada")
             return
         
-        # Buscar pelo telefone (remover 55 se tiver)
-        tel_busca = telefone[2:] if telefone.startswith('55') else telefone
-        print(f"🔍 Buscando por: {tel_busca}")
+        # Normalizar telefone - remover tudo que não é número
+        telefone_numeros = ''.join(c for c in str(telefone) if c.isdigit())
+        print(f"📞 Telefone normalizado: {telefone_numeros}")
         
+        # Tentar diferentes formatos
+        formatos_busca = [
+            telefone_numeros,  # 5553991452210
+            telefone_numeros[-11:] if len(telefone_numeros) >= 11 else telefone_numeros,  # 53991452210
+            telefone_numeros[-10:] if len(telefone_numeros) >= 10 else telefone_numeros,  # 3991452210
+            telefone_numeros[-9:] if len(telefone_numeros) >= 9 else telefone_numeros,   # 991452210
+        ]
+        
+        print(f"🔍 Tentando formatos: {formatos_busca}")
+        
+        # Normalizar telefones da planilha
         df['telefone'] = df['telefone'].astype(str)
+        df['telefone_normalizado'] = df['telefone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit()))
         
-        # Debug: mostrar todos os telefones na planilha
-        print(f"📋 Telefones na planilha: {df['telefone'].tolist()}")
+        print(f"📋 Telefones na planilha (normalizados): {df['telefone_normalizado'].tolist()}")
         
-        agendamento = df[df['telefone'].str.contains(tel_busca, na=False)]
+        agendamento = None
+        formato_encontrado = None
         
-        if agendamento.empty:
-            print(f"⚠️ Nenhum agendamento encontrado para: {tel_busca}")
-            print(f"Tentando buscar sem os dois primeiros dígitos...")
-            # Tentar sem DDD também
-            tel_sem_ddd = tel_busca[2:] if len(tel_busca) > 9 else tel_busca
-            agendamento = df[df['telefone'].str.contains(tel_sem_ddd, na=False)]
+        # Tentar cada formato
+        for formato in formatos_busca:
+            if formato:
+                mascara = df['telefone_normalizado'].str.contains(formato, na=False, regex=False)
+                resultado = df[mascara]
+                if not resultado.empty:
+                    agendamento = resultado
+                    formato_encontrado = formato
+                    print(f"✅ Encontrado com formato: {formato}")
+                    break
             
-        if agendamento.empty:
-            print(f"❌ Definitivamente não encontrado")
+        if agendamento is None or agendamento.empty:
+            print(f"❌ Nenhum agendamento encontrado para telefone {telefone}")
+            print(f"   Formatos tentados: {formatos_busca}")
             return
         
         print(f"✅ Agendamento encontrado!")
         
         idx = agendamento.index[0]
         paciente = df.at[idx, 'paciente']
+        exame = df.at[idx, 'exame'] if 'exame' in df.columns else 'Consulta'
+        
+        print(f"👤 Paciente: {paciente}")
+        print(f"🏥 Exame: {exame}")
         
         if resposta == '1':
             # CONFIRMAR
+            print(f"\n✅ CONFIRMANDO CONSULTA...")
+            
             if 'status_confirmacao' not in df.columns:
+                print("   📝 Criando coluna status_confirmacao")
                 df['status_confirmacao'] = ''
+            
+            print(f"   📝 Atualizando status no índice {idx}")
             df.at[idx, 'status_confirmacao'] = 'CONFIRMADO'
+            
+            print(f"   💾 Salvando planilha...")
             salvar_excel(df)
             
+            print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['confirmados'] += 1
             
             msg = f"""✅ *Consulta Confirmada!*
@@ -988,18 +1017,26 @@ Sua consulta foi confirmada com sucesso.
 
 Obrigado! 🏥"""
             
+            print(f"   📱 Enviando WhatsApp de confirmação...")
             whatsapp_client.enviar_mensagem_texto(telefone, msg)
-            print(f"✅ Confirmação enviada: {paciente}")
+            print(f"✅ CONFIRMAÇÃO CONCLUÍDA: {paciente}")
             
         elif resposta == '2':
             # CANCELAR
+            print(f"\n❌ CANCELANDO CONSULTA...")
+            
+            print(f"   📝 Liberando horário (índice {idx})")
             df.at[idx, 'disponivel'] = 'SIM'
             df.at[idx, 'paciente'] = ''
             df.at[idx, 'telefone'] = ''
+            
             if 'status_confirmacao' in df.columns:
-                df.at[idx, 'status_confirmacao'] = ''
+                df.at[idx, 'status_confirmacao'] = 'CANCELADO'
+            
+            print(f"   💾 Salvando planilha...")
             salvar_excel(df)
             
+            print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['cancelados'] += 1
             
             msg = f"""❌ *Consulta Cancelada*
@@ -1013,8 +1050,9 @@ Para reagendar, entre em contato com a UBS.
 
 Obrigado! 🏥"""
             
+            print(f"   📱 Enviando WhatsApp de cancelamento...")
             whatsapp_client.enviar_mensagem_texto(telefone, msg)
-            print(f"❌ Cancelamento processado: {paciente}")
+            print(f"❌ CANCELAMENTO CONCLUÍDO: {paciente}")
             
     except Exception as e:
         print(f"❌ Erro ao processar resposta: {e}")
