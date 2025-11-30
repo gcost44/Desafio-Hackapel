@@ -1,263 +1,345 @@
 """
-🟢 INTEGRAÇÃO WHATSAPP REAL - Evolution API
-Sistema de envio de mensagens via WhatsApp Business
-Evolution API: https://github.com/EvolutionAPI/evolution-api
+🟢 INTEGRAÇÃO WHATSAPP - Evolution API v2
+Sistema SUS Hackapel 2025
+
+Funcionalidades:
+- Envio de mensagens de texto
+- Envio de áudio (Text-to-Speech automático)
+- Gerenciamento de instância WhatsApp
+- Polling de mensagens recebidas
 """
 
 import requests
 import os
-import json
+import uuid
 from datetime import datetime
+from gtts import gTTS
 
-class WhatsAppEvolution:
-    """Cliente para Evolution API - WhatsApp Real"""
+# ==================== CONFIGURAÇÕES ====================
+
+class Config:
+    """Configurações centralizadas"""
+    
+    # Evolution API
+    EVOLUTION_URL = os.environ.get('EVOLUTION_API_URL', '')
+    EVOLUTION_KEY = os.environ.get('EVOLUTION_API_KEY', '')
+    INSTANCE_NAME = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
+    
+    # Diretórios
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    AUDIO_DIR = os.path.join(BASE_DIR, 'static', 'audios')
+    
+    # URL pública para áudios (Railway)
+    PUBLIC_URL = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    
+    @classmethod
+    def get_evolution_url(cls):
+        """Retorna URL da Evolution API com protocolo"""
+        url = cls.EVOLUTION_URL
+        if url and not url.startswith(('http://', 'https://')):
+            url = f'https://{url}'
+        return url
+    
+    @classmethod
+    def get_audio_url(cls, filename):
+        """Retorna URL pública do áudio"""
+        if cls.PUBLIC_URL:
+            return f"https://{cls.PUBLIC_URL}/static/audios/{filename}"
+        return f"http://localhost:5000/static/audios/{filename}"
+
+# Criar diretório de áudios
+os.makedirs(Config.AUDIO_DIR, exist_ok=True)
+
+# ==================== TEXT-TO-SPEECH ====================
+
+class TextToSpeech:
+    """Gerador de áudio a partir de texto"""
+    
+    @staticmethod
+    def gerar_audio(texto, nome_arquivo=None):
+        """
+        Gera arquivo de áudio MP3 a partir do texto
+        
+        Args:
+            texto: Texto para converter em áudio
+            nome_arquivo: Nome do arquivo (opcional, gera UUID se não informado)
+            
+        Returns:
+            dict: {sucesso: bool, arquivo: str, url: str}
+        """
+        try:
+            # Gerar nome único se não informado
+            if not nome_arquivo:
+                nome_arquivo = f"audio_{uuid.uuid4().hex[:8]}.mp3"
+            
+            # Caminho completo
+            caminho = os.path.join(Config.AUDIO_DIR, nome_arquivo)
+            
+            # Limpar texto para TTS (remover emojis problemáticos)
+            texto_limpo = TextToSpeech._limpar_texto(texto)
+            
+            # Gerar áudio com gTTS
+            tts = gTTS(text=texto_limpo, lang='pt-br', slow=False)
+            tts.save(caminho)
+            
+            print(f"🔊 Áudio gerado: {nome_arquivo}")
+            
+            return {
+                "sucesso": True,
+                "arquivo": nome_arquivo,
+                "caminho": caminho,
+                "url": Config.get_audio_url(nome_arquivo)
+            }
+            
+        except Exception as e:
+            print(f"❌ Erro ao gerar áudio: {e}")
+            return {"sucesso": False, "erro": str(e)}
+    
+    @staticmethod
+    def _limpar_texto(texto):
+        """Remove caracteres problemáticos para TTS"""
+        # Substituir emojis comuns por texto
+        substituicoes = {
+            '✅': 'Confirmado.',
+            '❌': 'Cancelado.',
+            '📅': 'Data:',
+            '⏰': 'Horário:',
+            '🏥': 'Local:',
+            '👨‍⚕️': 'Especialidade:',
+            '👵': 'Idade:',
+            '👴': '',
+            '📲': '',
+            '1️⃣': 'Um.',
+            '2️⃣': 'Dois.',
+            '🔊': '',
+            '📝': '',
+            '🎧': '',
+            '🔔': 'Atenção.',
+            '⚠️': 'Atenção.',
+            '📞': 'Telefone:',
+            '\n\n': '. ',
+            '\n': '. ',
+        }
+        
+        for emoji, texto_sub in substituicoes.items():
+            texto = texto.replace(emoji, texto_sub)
+        
+        # Remover outros emojis (caracteres unicode especiais)
+        texto_final = ''.join(c for c in texto if ord(c) < 0x1F600 or ord(c) > 0x1F9FF)
+        
+        return texto_final.strip()
+
+# ==================== CLIENTE WHATSAPP ====================
+
+class WhatsAppClient:
+    """Cliente para Evolution API - WhatsApp"""
     
     def __init__(self):
-        # Configurações da Evolution API
-        base_url = os.environ.get('EVOLUTION_API_URL', 'http://localhost:8080')
-        
-        # Garantir que a URL tenha protocolo
-        if base_url and not base_url.startswith(('http://', 'https://')):
-            base_url = f'https://{base_url}'
-        
-        self.base_url = base_url
-        self.api_key = os.environ.get('EVOLUTION_API_KEY', '')
-        self.instance_name = os.environ.get('EVOLUTION_INSTANCE', 'sus-agendamentos')
+        self.base_url = Config.get_evolution_url()
+        self.api_key = Config.EVOLUTION_KEY
+        self.instance = Config.INSTANCE_NAME
         
         self.headers = {
             'Content-Type': 'application/json',
             'apikey': self.api_key
         }
         
-        # Flag para modo de simulação (se API não configurada)
-        self.modo_simulacao = not self.api_key or self.api_key == ''
+        # Verificar modo
+        self.modo_simulacao = not self.api_key
         
         if self.modo_simulacao:
-            print("⚠️  Evolution API não configurada - Modo SIMULAÇÃO ativo")
+            print("⚠️  WhatsApp em modo SIMULAÇÃO (API não configurada)")
         else:
-            print(f"✅ Evolution API configurada: {self.base_url}")
+            print(f"✅ WhatsApp conectado: {self.base_url}")
     
-    def formatar_numero(self, telefone):
-        """Formata número para padrão WhatsApp: 5511999999999@s.whatsapp.net"""
-        # Força conversão para string e remove espaços/caracteres especiais
-        telefone_str = str(telefone).strip()
+    # ==================== FORMATAÇÃO ====================
+    
+    def _formatar_numero(self, telefone):
+        """
+        Formata telefone para Evolution API
+        Entrada: qualquer formato (55XXXXXXXXXXX, XXXXXXXXXXX, etc)
+        Saída: XXXXXXXXXXX (DDD + número, sem código do país)
+        """
+        # Converter para string e limpar
+        numero = ''.join(c for c in str(telefone) if c.isdigit())
         
-        # Remove tudo que não é dígito
-        numero = ''.join(c for c in telefone_str if c.isdigit())
-        
-        print(f"🔍 DEBUG - Número original: '{telefone}' (tipo: {type(telefone).__name__})")
-        print(f"🔍 DEBUG - Após limpar: '{numero}' (comprimento: {len(numero)})")
-        
-        # Remove 55 do início se já tiver
+        # Remover código 55 do Brasil se presente
         if numero.startswith('55') and len(numero) > 11:
             numero = numero[2:]
-            print(f"🔍 DEBUG - Removeu 55 existente: '{numero}'")
         
-        # Valida formato brasileiro: DDD (2) + número (8 ou 9 dígitos) = 10 ou 11 dígitos
-        if len(numero) < 10 or len(numero) > 11:
-            print(f"❌ ERRO - Número inválido: {len(numero)} dígitos (esperado 10-11)")
-            # Tenta corrigir números com dígitos extras
-            if len(numero) > 11:
-                numero = numero[:11]  # Pega só os primeiros 11
-                print(f"⚠️ CORREÇÃO - Truncado para: '{numero}'")
-        
-        # Garante que não tem 55 no início antes de adicionar
-        if numero.startswith('55'):
-            numero = numero[2:]
-        
-        # Adiciona código do país Brasil
-        numero_final = '55' + numero
-        print(f"🔍 DEBUG - Número final: '{numero_final}' ({len(numero_final)} dígitos)")
-        
-        resultado = f"{numero_final}@s.whatsapp.net"
-        print(f"🔍 DEBUG - JID final: '{resultado}'")
-        
-        return resultado
+        return numero
     
-    def enviar_mensagem_texto(self, telefone, mensagem):
-        """Envia mensagem de texto simples - Evolution API v2 format"""
+    # ==================== ENVIO DE MENSAGENS ====================
+    
+    def enviar_texto(self, telefone, mensagem):
+        """
+        Envia mensagem de texto simples
+        
+        Args:
+            telefone: Número do destinatário
+            mensagem: Texto da mensagem
+            
+        Returns:
+            dict: {sucesso: bool, ...}
+        """
         if self.modo_simulacao:
-            print(f"\n📱 [SIMULAÇÃO] WhatsApp para {telefone}")
-            print(f"   Mensagem: {mensagem[:100]}...")
+            print(f"📱 [SIM] Texto para {telefone}: {mensagem[:50]}...")
             return {"sucesso": True, "simulado": True}
         
         try:
-            # Normalizar telefone - remover tudo que não é número
-            telefone_str = str(telefone).strip()
-            numero = ''.join(c for c in telefone_str if c.isdigit())
-            
-            # REMOVER código 55 do Brasil se tiver (Evolution API não precisa)
-            if numero.startswith('55') and len(numero) > 11:
-                numero = numero[2:]
-            
-            print(f"🔍 ENVIO - Número original: '{telefone}'")
-            print(f"🔍 ENVIO - Número final (sem 55): '{numero}'")
-            
-            # Evolution API v2 formato correto - NÚMERO SEM CÓDIGO 55
-            payload = {
-                "number": numero,  # DDD + número (ex: 53991189715)
-                "textMessage": {
-                    "text": mensagem
-                }
-            }
-            
-            url = f"{self.base_url}/message/sendText/{self.instance_name}"
-            print(f"📤 URL: {url}")
-            print(f"📦 Payload completo: {payload}")
-            
-            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
-            
-            print(f"📡 Status HTTP: {response.status_code}")
-            print(f"📡 Resposta: {response.text[:200]}")
-            
-            if response.status_code == 201 or response.status_code == 200:
-                print(f"✅ Mensagem enviada para {telefone}")
-                return {"sucesso": True, "response": response.json()}
-            else:
-                print(f"❌ Erro ao enviar: {response.status_code} - {response.text}")
-                return {"sucesso": False, "erro": response.text}
-                
-        except Exception as e:
-            print(f"❌ Erro na API: {e}")
-            return {"sucesso": False, "erro": str(e)}
-    
-    def enviar_audio(self, telefone, audio_url):
-        """Envia áudio para WhatsApp - Evolution API v2 format"""
-        if self.modo_simulacao:
-            print(f"\n🔊 [SIMULAÇÃO] Áudio WhatsApp para {telefone}")
-            print(f"   URL: {audio_url}")
-            return {"sucesso": True, "simulado": True}
-        
-        try:
-            # Normalizar telefone - remover tudo que não é número
-            telefone_str = str(telefone).strip()
-            numero = ''.join(c for c in telefone_str if c.isdigit())
-            
-            # REMOVER código 55 do Brasil se tiver
-            if numero.startswith('55') and len(numero) > 11:
-                numero = numero[2:]
-            
-            print(f"🔊 ÁUDIO - Número final (sem 55): '{numero}'")
-            
-            # Evolution API v2 formato correto para áudio - NÚMERO SEM CÓDIGO 55
-            payload = {
-                "number": numero,  # DDD + número (ex: 53991189715)
-                "mediaMessage": {
-                    "mediatype": "audio",
-                    "media": audio_url
-                }
-            }
-            
-            url = f"{self.base_url}/message/sendMedia/{self.instance_name}"
-            print(f"🔊 URL áudio: {url}")
-            print(f"🔊 Payload áudio: {payload}")
-            
-            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
-            
-            print(f"📡 Status áudio: {response.status_code}")
-            
-            if response.status_code == 201 or response.status_code == 200:
-                print(f"✅ Áudio enviado para {telefone}")
-                return {"sucesso": True, "response": response.json()}
-            else:
-                print(f"❌ Erro ao enviar áudio: {response.status_code} - {response.text}")
-                return {"sucesso": False, "erro": response.text}
-                
-        except Exception as e:
-            print(f"❌ Erro ao enviar áudio: {e}")
-            return {"sucesso": False, "erro": str(e)}
-    
-    def enviar_mensagem_com_botoes(self, telefone, mensagem, botoes):
-        """Envia mensagem com botões interativos (Evolution API v2+)"""
-        if self.modo_simulacao:
-            print(f"\n📱 [SIMULAÇÃO] Mensagem com botões para {telefone}")
-            print(f"   Botões: {[b['displayText'] for b in botoes]}")
-            return {"sucesso": True, "simulado": True}
-        
-        try:
-            numero_formatado = self.formatar_numero(telefone)
+            numero = self._formatar_numero(telefone)
             
             payload = {
-                "number": numero_formatado,
-                "options": {
-                    "delay": 1200,
-                    "presence": "composing"
-                },
-                "buttonMessage": {
-                    "text": mensagem,
-                    "buttons": botoes,
-                    "footerText": "Sistema SUS Hackapel 2025"
-                }
+                "number": numero,
+                "textMessage": {"text": mensagem}
             }
             
-            url = f"{self.base_url}/message/sendButtons/{self.instance_name}"
-            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            url = f"{self.base_url}/message/sendText/{self.instance}"
+            response = requests.post(url, json=payload, headers=self.headers, timeout=15)
             
-            if response.status_code == 201:
-                print(f"✅ Mensagem com botões enviada para {telefone}")
-                return {"sucesso": True, "response": response.json()}
+            if response.status_code in [200, 201]:
+                print(f"✅ Texto enviado para {numero}")
+                return {"sucesso": True}
             else:
-                print(f"❌ Erro ao enviar: {response.status_code}")
+                print(f"❌ Erro texto: {response.status_code}")
                 return {"sucesso": False, "erro": response.text}
                 
         except Exception as e:
             print(f"❌ Erro: {e}")
             return {"sucesso": False, "erro": str(e)}
     
-    def verificar_status_instancia(self):
-        """Verifica se a instância está conectada"""
+    def enviar_audio(self, telefone, audio_url):
+        """
+        Envia arquivo de áudio
+        
+        Args:
+            telefone: Número do destinatário
+            audio_url: URL pública do áudio
+            
+        Returns:
+            dict: {sucesso: bool, ...}
+        """
+        if self.modo_simulacao:
+            print(f"🔊 [SIM] Áudio para {telefone}: {audio_url}")
+            return {"sucesso": True, "simulado": True}
+        
+        try:
+            numero = self._formatar_numero(telefone)
+            
+            payload = {
+                "number": numero,
+                "mediaMessage": {
+                    "mediatype": "audio",
+                    "media": audio_url
+                }
+            }
+            
+            url = f"{self.base_url}/message/sendMedia/{self.instance}"
+            response = requests.post(url, json=payload, headers=self.headers, timeout=15)
+            
+            if response.status_code in [200, 201]:
+                print(f"✅ Áudio enviado para {numero}")
+                return {"sucesso": True}
+            else:
+                print(f"❌ Erro áudio: {response.status_code}")
+                return {"sucesso": False, "erro": response.text}
+                
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            return {"sucesso": False, "erro": str(e)}
+    
+    def enviar_mensagem_completa(self, telefone, mensagem, com_audio=True):
+        """
+        Envia mensagem de texto + áudio (TTS)
+        
+        Args:
+            telefone: Número do destinatário
+            mensagem: Texto da mensagem
+            com_audio: Se True, também envia versão em áudio
+            
+        Returns:
+            dict: {sucesso: bool, texto_enviado: bool, audio_enviado: bool}
+        """
+        resultado = {
+            "sucesso": False,
+            "texto_enviado": False,
+            "audio_enviado": False
+        }
+        
+        # 1. Enviar texto
+        res_texto = self.enviar_texto(telefone, mensagem)
+        resultado["texto_enviado"] = res_texto.get("sucesso", False)
+        
+        # 2. Gerar e enviar áudio (se solicitado)
+        if com_audio:
+            audio = TextToSpeech.gerar_audio(mensagem)
+            
+            if audio.get("sucesso"):
+                res_audio = self.enviar_audio(telefone, audio["url"])
+                resultado["audio_enviado"] = res_audio.get("sucesso", False)
+                resultado["audio_url"] = audio["url"]
+        
+        # Sucesso se pelo menos o texto foi enviado
+        resultado["sucesso"] = resultado["texto_enviado"]
+        
+        return resultado
+    
+    # ==================== GERENCIAMENTO DE INSTÂNCIA ====================
+    
+    def verificar_conexao(self):
+        """Verifica se o WhatsApp está conectado"""
         if self.modo_simulacao:
             return {"conectado": False, "simulacao": True}
         
         try:
-            url = f"{self.base_url}/instance/connectionState/{self.instance_name}"
-            print(f"🔍 Verificando status em: {url}")
-            
+            url = f"{self.base_url}/instance/connectionState/{self.instance}"
             response = requests.get(url, headers=self.headers, timeout=10)
-            print(f"📊 Status code: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"📱 Dados recebidos: {data}")
-                
-                # Evolution API v2 retorna diferentes formatos
                 state = data.get('state') or data.get('instance', {}).get('state')
-                conectado = state == 'open'
-                
                 return {
-                    "conectado": conectado,
+                    "conectado": state == 'open',
                     "status": state,
-                    "response": data
+                    "dados": data
                 }
-            elif response.status_code == 404:
-                return {"conectado": False, "erro": "Instância não existe. Clique em 'Criar Instância'"}
             else:
-                print(f"❌ Erro: {response.text}")
-                return {"conectado": False, "erro": f"Erro {response.status_code}: {response.text}"}
+                return {"conectado": False, "erro": f"HTTP {response.status_code}"}
                 
-        except requests.exceptions.Timeout:
-            return {"conectado": False, "erro": "Timeout - Evolution API não responde"}
         except Exception as e:
-            print(f"❌ Exceção: {e}")
             return {"conectado": False, "erro": str(e)}
     
-    def criar_instancia(self):
-        """Cria nova instância do WhatsApp - verifica se já existe primeiro"""
+    def obter_qrcode(self):
+        """Obtém QR Code para conectar WhatsApp"""
         if self.modo_simulacao:
-            return {"sucesso": False, "erro": "Configure Evolution API primeiro"}
+            return {"sucesso": False, "erro": "API não configurada"}
         
         try:
-            # Verificar se instância já existe
-            url_check = f"{self.base_url}/instance/connectionState/{self.instance_name}"
-            check_response = requests.get(url_check, headers=self.headers, timeout=5)
+            # Tentar conectar (gera QR)
+            url = f"{self.base_url}/instance/connect/{self.instance}"
+            response = requests.get(url, headers=self.headers, timeout=10)
             
-            if check_response.status_code == 200:
-                # Instância já existe - tentar obter QR Code
-                return {"sucesso": False, "erro": "Instância já existe. Use 'Obter QR Code' para conectar.", "ja_existe": True}
-            
-            # Instância não existe - criar
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "sucesso": True,
+                    "qrcode": data.get('base64'),
+                    "code": data.get('code')
+                }
+            elif response.status_code == 404:
+                # Criar instância automaticamente
+                return self._criar_instancia()
+            else:
+                return {"sucesso": False, "erro": response.text}
+                
+        except Exception as e:
+            return {"sucesso": False, "erro": str(e)}
+    
+    def _criar_instancia(self):
+        """Cria nova instância WhatsApp"""
+        try:
             payload = {
-                "instanceName": self.instance_name,
+                "instanceName": self.instance,
                 "qrcode": True,
                 "integration": "WHATSAPP-BAILEYS"
             }
@@ -270,144 +352,194 @@ class WhatsAppEvolution:
                 return {
                     "sucesso": True,
                     "qrcode": data.get('qrcode', {}).get('base64'),
-                    "response": data
+                    "mensagem": "Instância criada"
                 }
-            elif response.status_code == 403:
-                # Nome já em uso
-                return {"sucesso": False, "erro": "Instância já existe. Use 'Obter QR Code' para conectar.", "ja_existe": True}
             else:
                 return {"sucesso": False, "erro": response.text}
                 
         except Exception as e:
             return {"sucesso": False, "erro": str(e)}
     
-    def obter_qrcode(self):
-        """Obtém QR Code para conectar WhatsApp - cria instância se não existir"""
-        if self.modo_simulacao:
-            return {"sucesso": False, "erro": "Configure Evolution API primeiro"}
-        
-        try:
-            # Tentar obter QR Code
-            url = f"{self.base_url}/instance/connect/{self.instance_name}"
-            response = requests.get(url, headers=self.headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                return {
-                    "sucesso": True,
-                    "qrcode": data.get('base64'),
-                    "code": data.get('code')
-                }
-            elif response.status_code == 404:
-                # Instância não existe - criar automaticamente
-                print(f"⚠️  Instância '{self.instance_name}' não existe. Criando...")
-                resultado_criacao = self.criar_instancia()
-                
-                if resultado_criacao.get('sucesso'):
-                    return {
-                        "sucesso": True,
-                        "qrcode": resultado_criacao.get('qrcode'),
-                        "mensagem": "Instância criada automaticamente"
-                    }
-                else:
-                    return resultado_criacao
-            else:
-                return {"sucesso": False, "erro": response.text}
-                
-        except Exception as e:
-            return {"sucesso": False, "erro": str(e)}
+    # ==================== BUSCAR MENSAGENS (POLLING) ====================
     
-    def verificar_webhook(self):
-        """Verifica configuração atual do webhook"""
+    def buscar_mensagens(self, limite=5):
+        """
+        Busca últimas mensagens recebidas
+        
+        Args:
+            limite: Quantidade de mensagens a buscar
+            
+        Returns:
+            list: Lista de mensagens [{numero, texto, timestamp, id}, ...]
+        """
         if self.modo_simulacao:
-            return {"sucesso": False, "erro": "Evolution API não configurada"}
+            return []
         
         try:
-            url = f"{self.base_url}/webhook/find/{self.instance_name}"
-            response = requests.get(url, headers=self.headers, timeout=10)
+            url = f"{self.base_url}/chat/findMessages/{self.instance}"
             
-            if response.status_code == 200:
-                data = response.json()
-                print(f"📋 Webhook atual: {data}")
-                return {"sucesso": True, "webhook": data}
-            else:
-                return {"sucesso": False, "erro": response.text}
-        except Exception as e:
-            return {"sucesso": False, "erro": str(e)}
-    
-    def configurar_webhook(self, webhook_url):
-        """Configura webhook para receber mensagens - Evolution API v2"""
-        if self.modo_simulacao:
-            return {"sucesso": False, "erro": "Evolution API não configurada"}
-        
-        try:
-            # Primeiro verificar webhook atual
-            webhook_atual = self.verificar_webhook()
-            print(f"🔍 Webhook atual: {webhook_atual}")
-            
-            # Evolution API v2 - Configuração completa de webhook
             payload = {
-                "enabled": True,
-                "url": webhook_url,
-                "webhookByEvents": True,
-                "webhookBase64": False,
-                "events": ["MESSAGES_UPSERT"]
+                "where": {"key": {"fromMe": False}},
+                "limit": limite,
+                "sort": {"messageTimestamp": -1}
             }
-            
-            # Tentar endpoint alternativo primeiro
-            url_alt = f"{self.base_url}/instance/settings/{self.instance_name}"
-            settings_payload = {
-                "rejectCall": False,
-                "msgCall": "Chamadas não são aceitas",
-                "groupsIgnore": True,
-                "alwaysOnline": False,
-                "readMessages": False,
-                "readStatus": False,
-                "syncFullHistory": False,
-                "webhooks": [{
-                    "url": webhook_url,
-                    "enabled": True,
-                    "events": ["MESSAGES_UPSERT"],
-                    "webhookByEvents": True
-                }]
-            }
-            
-            print(f"🔗 Tentando configurar via settings...")
-            try:
-                resp_settings = requests.post(url_alt, json=settings_payload, headers=self.headers, timeout=10)
-                print(f"Settings response: {resp_settings.status_code} - {resp_settings.text}")
-            except Exception as e:
-                print(f"Settings falhou: {e}")
-            
-            # Configurar webhook padrão também
-            url = f"{self.base_url}/webhook/set/{self.instance_name}"
-            print(f"🔗 Configurando webhook Evolution API v2")
-            print(f"Endpoint: {url}")
-            print(f"Webhook URL: {webhook_url}")
-            print(f"Payload: {json.dumps(payload, indent=2)}")
             
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             
-            print(f"📡 Status: {response.status_code}")
-            print(f"📡 Resposta: {response.text}")
+            if response.status_code != 200:
+                return []
             
-            if response.status_code in [200, 201]:
-                print(f"✅ Webhook configurado com sucesso!")
-                # Verificar novamente para confirmar
-                verificacao = self.verificar_webhook()
-                return {
-                    "sucesso": True, 
-                    "webhook_url": webhook_url, 
-                    "response": response.json() if response.text else {},
-                    "verificacao": verificacao
-                }
-            else:
-                return {"sucesso": False, "erro": response.text, "status": response.status_code}
+            dados = response.json()
+            
+            # Normalizar formato
+            mensagens_raw = dados
+            if isinstance(dados, dict):
+                mensagens_raw = dados.get('messages', dados.get('data', []))
+            
+            if not isinstance(mensagens_raw, list):
+                mensagens_raw = [mensagens_raw] if mensagens_raw else []
+            
+            # Extrair dados relevantes
+            mensagens = []
+            for msg in mensagens_raw:
+                key = msg.get('key', {})
+                message = msg.get('message', {})
                 
+                # Ignorar mensagens enviadas por nós
+                if key.get('fromMe'):
+                    continue
+                
+                # Extrair número
+                numero = key.get('remoteJid', '').replace('@s.whatsapp.net', '')
+                
+                # Extrair texto
+                texto = message.get('conversation') or \
+                        message.get('extendedTextMessage', {}).get('text', '')
+                
+                mensagens.append({
+                    "id": key.get('id'),
+                    "numero": numero,
+                    "texto": texto.strip(),
+                    "timestamp": msg.get('messageTimestamp', 0)
+                })
+            
+            return mensagens
+            
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {"sucesso": False, "erro": str(e)}
+            print(f"❌ Erro ao buscar mensagens: {e}")
+            return []
 
-# Cliente global
-whatsapp_client = WhatsAppEvolution()
+# ==================== MENSAGENS PRÉ-DEFINIDAS ====================
+
+class MensagensSUS:
+    """Templates de mensagens do sistema SUS"""
+    
+    @staticmethod
+    def agendamento_confirmado(nome, exame, data, horario, clinica, idade=None):
+        """Mensagem de agendamento realizado"""
+        
+        prioridade = ""
+        if idade and idade >= 60:
+            prioridade = f"\n👴 Idade: {idade} anos - ATENDIMENTO PRIORITÁRIO"
+        
+        return f"""✅ AGENDAMENTO CONFIRMADO
+
+Olá, {nome}!
+
+Sua consulta foi agendada com sucesso:
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+👨‍⚕️ Especialidade: {exame}{prioridade}
+
+📲 Por favor, confirme sua presença:
+1️⃣ Digite 1 para CONFIRMAR
+2️⃣ Digite 2 para CANCELAR
+
+Aguardamos sua resposta!
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def consulta_confirmada(nome):
+        """Mensagem de confirmação de presença"""
+        return f"""✅ CONSULTA CONFIRMADA!
+
+Olá, {nome}!
+
+Sua presença está confirmada.
+Compareça no dia e horário agendados.
+
+Leve seus documentos:
+- RG ou CNH
+- Cartão SUS
+- Exames anteriores (se houver)
+
+Obrigado pela confirmação!
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def consulta_cancelada(nome):
+        """Mensagem de cancelamento"""
+        return f"""❌ CONSULTA CANCELADA
+
+Olá, {nome}!
+
+Sua consulta foi cancelada conforme solicitado.
+O horário foi liberado para outros pacientes.
+
+Caso precise reagendar, entre em contato:
+📞 Telefone: (53) 3000-0000
+
+Esperamos atendê-lo em breve!
+Sistema SUS - Hackapel 2025"""
+    
+    @staticmethod
+    def lembrete(nome, exame, data, horario, clinica, dias_restantes):
+        """Mensagem de lembrete"""
+        
+        urgencia = ""
+        if dias_restantes == 1:
+            urgencia = "⚠️ SUA CONSULTA É AMANHÃ!"
+        elif dias_restantes <= 3:
+            urgencia = f"⏰ Faltam apenas {dias_restantes} dias!"
+        
+        return f"""🔔 LEMBRETE DE CONSULTA
+
+Olá, {nome}!
+
+{urgencia}
+
+Sua consulta de {exame} está marcada para:
+
+📅 Data: {data}
+⏰ Horário: {horario}
+🏥 Local: {clinica}
+
+Não se esqueça de levar seus documentos!
+
+Sistema SUS - Hackapel 2025"""
+
+# ==================== INSTÂNCIA GLOBAL ====================
+
+# Cliente WhatsApp (singleton)
+whatsapp_client = WhatsAppClient()
+
+# ==================== FUNÇÕES DE COMPATIBILIDADE ====================
+# (Para manter compatibilidade com código existente no app.py)
+
+def enviar_mensagem_texto(telefone, mensagem):
+    """Wrapper para compatibilidade - envia texto + áudio"""
+    return whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
+
+def enviar_audio(telefone, audio_url):
+    """Wrapper para compatibilidade"""
+    return whatsapp_client.enviar_audio(telefone, audio_url)
+
+def verificar_status_instancia():
+    """Wrapper para compatibilidade"""
+    return whatsapp_client.verificar_conexao()
+
+def obter_qrcode():
+    """Wrapper para compatibilidade"""
+    return whatsapp_client.obter_qrcode()

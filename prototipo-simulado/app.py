@@ -19,7 +19,7 @@ import time
 import google.generativeai as genai
 from gtts import gTTS
 import uuid
-from whatsapp_integration import whatsapp_client
+from whatsapp_integration import whatsapp_client, TextToSpeech, MensagensSUS
 import requests
 
 app = Flask(__name__)
@@ -412,36 +412,34 @@ http://localhost:5000/static/audios/{audio_filename}
 
 👵👴 Atendimento preferencial garantido!"""
     
-    # Enviar mensagem WhatsApp REAL via Evolution API
-    mensagem = f"""✅ AGENDAMENTO CONFIRMADO
-
-Olá, {nome}!
-
-Sua consulta foi agendada:
-📅 Data: {vaga_info['data']}
-⏰ Horário: {vaga_info['horario']}
-🏥 Local: {vaga_info['clinica']}
-👨‍⚕️ Especialidade: {exame}
-{'👵 Idade: ' + str(idade) + ' anos (Atendimento Prioritário)' if idade >= 60 else ''}
-
-{orientacoes}
-
-📌 Lembretes automáticos:
-   • 7, 5, 3 dias e 24h antes
-
-Responda:
-1 - Confirmar
-2 - Cancelar"""
+    # Criar mensagem usando template
+    mensagem = MensagensSUS.agendamento_confirmado(
+        nome=nome,
+        exame=exame,
+        data=vaga_info['data'],
+        horario=vaga_info['horario'],
+        clinica=vaga_info['clinica'],
+        idade=idade if idade >= 60 else None
+    )
     
-    # Enviar via Evolution API
-    resultado_envio = whatsapp_client.enviar_mensagem_texto(telefone, mensagem)
+    # Adicionar orientações se houver
+    if orientacoes:
+        mensagem += f"\n\n{orientacoes}"
     
-    # Se for idoso, enviar áudio separado
+    # Enviar mensagem + áudio via Evolution API (TODAS as mensagens têm áudio)
+    print(f"\n📱 Enviando WhatsApp + Áudio para {telefone}...")
+    resultado_envio = whatsapp_client.enviar_mensagem_completa(telefone, mensagem, com_audio=True)
+    
+    if resultado_envio.get('sucesso'):
+        print(f"✅ Texto enviado!")
+    if resultado_envio.get('audio_enviado'):
+        print(f"🔊 Áudio TTS enviado!")
+    
+    # Se for idoso (60+), enviar áudio EXTRA personalizado
     if idade >= 60 and audio_filename:
-        # URL pública do áudio (ajustar conforme domínio)
         audio_url_publico = f"{request.host_url}static/audios/{audio_filename}"
         whatsapp_client.enviar_audio(telefone, audio_url_publico)
-        print(f"   👴👵 IDOSO ({idade} anos) - ÁUDIO ENVIADO")
+        print(f"👴👵 IDOSO ({idade} anos) - ÁUDIO EXTRA PERSONALIZADO ENVIADO")
     
     print(f"\n🟢 [WhatsApp REAL] Enviado para {telefone}")
     
@@ -451,7 +449,8 @@ Responda:
         "mensagem": mensagem,
         "idoso": idade >= 60,
         "idade": idade,
-        "audio_url": agendamento["audio_url"]
+        "audio_url": agendamento["audio_url"],
+        "tts_enviado": resultado_envio.get('audio_enviado', False)
     })
 
 @app.route('/api/resposta-paciente', methods=['POST'])
@@ -1050,18 +1049,17 @@ def processar_resposta_paciente(telefone, resposta):
             print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['confirmados'] += 1
             
-            # Mensagem curta e simples
-            msg = f"""✅ Consulta confirmada!
-
-Olá {paciente}, sua consulta está confirmada.
-Compareça no dia e horário agendados.
-
-Obrigado! 🏥"""
+            # Usar template de mensagem
+            msg = MensagensSUS.consulta_confirmada(paciente)
             
-            print(f"   📱 Tentando enviar WhatsApp...")
+            print(f"   📱 Enviando WhatsApp + Áudio...")
             try:
-                whatsapp_client.enviar_mensagem_texto(telefone, msg)
-                print(f"   ✅ WhatsApp enviado com sucesso")
+                # Envia texto + áudio automaticamente
+                resultado = whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+                if resultado.get('sucesso'):
+                    print(f"   ✅ Texto enviado!")
+                if resultado.get('audio_enviado'):
+                    print(f"   🔊 Áudio enviado!")
             except Exception as e:
                 print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
                 print(f"   ℹ️ Confirmação salva no sistema mesmo sem enviar WhatsApp")
@@ -1086,18 +1084,17 @@ Obrigado! 🏥"""
             print(f"   📊 Atualizando métricas...")
             dados_sistema['metricas']['cancelados'] += 1
             
-            # Mensagem curta e simples
-            msg = f"""❌ Consulta cancelada
-
-Olá {paciente}, sua consulta foi cancelada.
-Entre em contato para reagendar.
-
-Obrigado! 🏥"""
+            # Usar template de mensagem
+            msg = MensagensSUS.consulta_cancelada(paciente)
             
-            print(f"   📱 Tentando enviar WhatsApp...")
+            print(f"   📱 Enviando WhatsApp + Áudio...")
             try:
-                whatsapp_client.enviar_mensagem_texto(telefone, msg)
-                print(f"   ✅ WhatsApp enviado com sucesso")
+                # Envia texto + áudio automaticamente
+                resultado = whatsapp_client.enviar_mensagem_completa(telefone, msg, com_audio=True)
+                if resultado.get('sucesso'):
+                    print(f"   ✅ Texto enviado!")
+                if resultado.get('audio_enviado'):
+                    print(f"   🔊 Áudio enviado!")
             except Exception as e:
                 print(f"   ⚠️ Erro ao enviar WhatsApp: {e}")
                 print(f"   ℹ️ Cancelamento salvo no sistema mesmo sem enviar WhatsApp")
