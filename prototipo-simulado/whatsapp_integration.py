@@ -349,7 +349,6 @@ class WhatsAppEvolution:
                     "SEND_MESSAGE"
                 ]
             }
-            }
             
             url = f"{self.base_url}/webhook/set/{self.instance_name}"
             print(f"🔗 Configurando webhook Evolution API v2")
