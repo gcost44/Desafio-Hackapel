@@ -309,45 +309,75 @@ class WhatsAppEvolution:
         except Exception as e:
             return {"sucesso": False, "erro": str(e)}
     
+    def verificar_webhook(self):
+        """Verifica configuração atual do webhook"""
+        if self.modo_simulacao:
+            return {"sucesso": False, "erro": "Evolution API não configurada"}
+        
+        try:
+            url = f"{self.base_url}/webhook/find/{self.instance_name}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"📋 Webhook atual: {data}")
+                return {"sucesso": True, "webhook": data}
+            else:
+                return {"sucesso": False, "erro": response.text}
+        except Exception as e:
+            return {"sucesso": False, "erro": str(e)}
+    
     def configurar_webhook(self, webhook_url):
         """Configura webhook para receber mensagens - Evolution API v2"""
         if self.modo_simulacao:
             return {"sucesso": False, "erro": "Evolution API não configurada"}
         
         try:
-            # Evolution API v2 formato de webhook
+            # Primeiro verificar webhook atual
+            webhook_atual = self.verificar_webhook()
+            print(f"🔍 Webhook atual: {webhook_atual}")
+            
+            # Evolution API v2 - WEBHOOK POR EVENTO
             payload = {
                 "enabled": True,
                 "url": webhook_url,
-                "webhookByEvents": False,
+                "webhookByEvents": True,  # TRUE = envia POST por evento
                 "webhookBase64": False,
                 "events": [
-                    "QRCODE_UPDATED",
                     "MESSAGES_UPSERT",
-                    "MESSAGES_UPDATE", 
-                    "MESSAGES_DELETE",
-                    "SEND_MESSAGE",
-                    "CONNECTION_UPDATE"
+                    "MESSAGES_UPDATE",
+                    "SEND_MESSAGE"
                 ]
+            }
             }
             
             url = f"{self.base_url}/webhook/set/{self.instance_name}"
             print(f"🔗 Configurando webhook Evolution API v2")
-            print(f"URL: {url}")
-            print(f"Payload: {payload}")
+            print(f"Endpoint: {url}")
+            print(f"Webhook URL: {webhook_url}")
+            print(f"Payload: {json.dumps(payload, indent=2)}")
             
             response = requests.post(url, json=payload, headers=self.headers, timeout=10)
             
-            print(f"Status: {response.status_code}")
-            print(f"Resposta: {response.text}")
+            print(f"📡 Status: {response.status_code}")
+            print(f"📡 Resposta: {response.text}")
             
             if response.status_code in [200, 201]:
-                print(f"✅ Webhook configurado: {webhook_url}")
-                return {"sucesso": True, "webhook_url": webhook_url, "response": response.json()}
+                print(f"✅ Webhook configurado com sucesso!")
+                # Verificar novamente para confirmar
+                verificacao = self.verificar_webhook()
+                return {
+                    "sucesso": True, 
+                    "webhook_url": webhook_url, 
+                    "response": response.json() if response.text else {},
+                    "verificacao": verificacao
+                }
             else:
                 return {"sucesso": False, "erro": response.text, "status": response.status_code}
                 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return {"sucesso": False, "erro": str(e)}
 
 # Cliente global
