@@ -196,11 +196,12 @@ class WhatsAppEvolution:
             return {"sucesso": False, "erro": str(e)}
     
     def obter_qrcode(self):
-        """Obtém QR Code para conectar WhatsApp"""
+        """Obtém QR Code para conectar WhatsApp - cria instância se não existir"""
         if self.modo_simulacao:
             return {"sucesso": False, "erro": "Configure Evolution API primeiro"}
         
         try:
+            # Tentar obter QR Code
             url = f"{self.base_url}/instance/connect/{self.instance_name}"
             response = requests.get(url, headers=self.headers, timeout=10)
             
@@ -211,6 +212,19 @@ class WhatsAppEvolution:
                     "qrcode": data.get('base64'),
                     "code": data.get('code')
                 }
+            elif response.status_code == 404:
+                # Instância não existe - criar automaticamente
+                print(f"⚠️  Instância '{self.instance_name}' não existe. Criando...")
+                resultado_criacao = self.criar_instancia()
+                
+                if resultado_criacao.get('sucesso'):
+                    return {
+                        "sucesso": True,
+                        "qrcode": resultado_criacao.get('qrcode'),
+                        "mensagem": "Instância criada automaticamente"
+                    }
+                else:
+                    return resultado_criacao
             else:
                 return {"sucesso": False, "erro": response.text}
                 

@@ -203,7 +203,8 @@
             </div>
             
             <button class="btn btn-primary" onclick="verificarStatus()">🔄 Atualizar Status</button>
-            <button class="btn btn-secondary" onclick="mostrarQRCode()">📱 Obter QR Code</button>
+            <button class="btn btn-primary" onclick="mostrarQRCode()">📱 Obter QR Code</button>
+            <button class="btn btn-secondary" onclick="criarInstancia()">➕ Criar Instância</button>
         </div>
         
         <!-- QR Code -->
@@ -319,24 +320,73 @@ docker run -d \
             }
         }
         
+        async function criarInstancia() {
+            const section = document.getElementById('qrcodeSection');
+            section.style.display = 'block';
+            
+            const container = document.getElementById('qrcodeContainer');
+            container.innerHTML = '<div class="loading active">Criando instância WhatsApp...</div>';
+            
+            try {
+                const response = await fetch('/api/whatsapp/criar-instancia', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.sucesso && data.qrcode) {
+                    container.innerHTML = `
+                        <div class="success-box">
+                            <strong>✅ Instância criada com sucesso!</strong><br>
+                            Escaneie o QR Code abaixo
+                        </div>
+                        <img src="${data.qrcode}" alt="QR Code WhatsApp">
+                    `;
+                    setTimeout(verificarStatus, 2000);
+                } else {
+                    container.innerHTML = `
+                        <div class="warning-box">
+                            <strong>⚠️ Erro ao criar instância</strong><br>
+                            ${data.erro || 'Tente novamente'}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="warning-box">
+                        <strong>❌ Erro:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
         async function mostrarQRCode() {
             const section = document.getElementById('qrcodeSection');
             section.style.display = 'block';
             
             const container = document.getElementById('qrcodeContainer');
-            container.innerHTML = '<div class="loading active">Gerando QR Code...</div>';
+            container.innerHTML = '<div class="loading active">Gerando QR Code (cria instância automaticamente se necessário)...</div>';
             
             try {
                 const response = await fetch('/api/whatsapp/qrcode');
                 const data = await response.json();
                 
                 if (data.sucesso && data.qrcode) {
-                    container.innerHTML = `<img src="${data.qrcode}" alt="QR Code WhatsApp">`;
+                    let mensagem = '';
+                    if (data.mensagem) {
+                        mensagem = `
+                            <div class="info-box">
+                                <strong>ℹ️ ${data.mensagem}</strong>
+                            </div>
+                        `;
+                    }
+                    container.innerHTML = `${mensagem}<img src="${data.qrcode}" alt="QR Code WhatsApp">`;
+                    setTimeout(verificarStatus, 2000);
                 } else {
                     container.innerHTML = `
                         <div class="warning-box">
                             <strong>⚠️ Erro ao gerar QR Code</strong><br>
-                            ${data.erro || 'Configure Evolution API primeiro'}
+                            ${data.erro || 'Configure Evolution API primeiro'}<br><br>
+                            <button class="btn btn-primary" onclick="criarInstancia()">➕ Criar Instância Manualmente</button>
                         </div>
                     `;
                 }

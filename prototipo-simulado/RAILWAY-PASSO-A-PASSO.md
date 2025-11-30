@@ -150,10 +150,15 @@ https://sua-url-sistema.up.railway.app/whatsapp-config
 
 1. Clique em **"📱 Obter QR Code"**
 2. Aguarde 5-10 segundos
-3. **QR Code aparecerá na tela**
+3. **QR Code aparecerá na tela** (instância é criada automaticamente se não existir)
 
-Se der erro, verifique:
-- Evolution API está rodando?
+**Se der erro "instância não existe":**
+- Clique em **"➕ Criar Instância"**
+- Aguarde a criação
+- QR Code aparecerá automaticamente
+
+**Outros erros, verifique:**
+- Evolution API está rodando? (acesse a URL diretamente)
 - URL da Evolution está correta nas variáveis?
 - API KEY está igual nos dois projetos?
 
