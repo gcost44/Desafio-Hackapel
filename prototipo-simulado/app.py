@@ -272,11 +272,47 @@ def status_excel():
 
 @app.route('/api/metricas')
 def metricas():
-    return jsonify(dados_sistema["metricas"])
+    """Retorna métricas lidas diretamente do Excel"""
+    df = carregar_excel()
+    if df is None:
+        return jsonify({"agendados": 0, "confirmados": 0, "cancelados": 0, "lembretes": 0})
+    
+    # Contar do Excel
+    agendados = len(df[df['paciente'].notna() & (df['paciente'] != '') & (df['paciente'] != 'nan')])
+    confirmados = len(df[df['status_confirmacao'] == 'CONFIRMADO']) if 'status_confirmacao' in df.columns else 0
+    cancelados = len(df[df['status_confirmacao'] == 'CANCELADO']) if 'status_confirmacao' in df.columns else 0
+    
+    return jsonify({
+        "agendados": agendados,
+        "confirmados": confirmados,
+        "cancelados": cancelados,
+        "lembretes": 0
+    })
 
 @app.route('/api/agendamentos')
 def agendamentos():
-    return jsonify(dados_sistema["agendamentos"][-20:])
+    """Retorna lista de agendamentos do Excel"""
+    df = carregar_excel()
+    if df is None:
+        return jsonify([])
+    
+    # Filtrar apenas linhas com paciente
+    df_agendados = df[df['paciente'].notna() & (df['paciente'] != '') & (df['paciente'] != 'nan')].copy()
+    
+    lista = []
+    for idx, row in df_agendados.iterrows():
+        lista.append({
+            "id": idx + 1,
+            "paciente": str(row.get('paciente', '')),
+            "telefone": str(row.get('telefone', '')),
+            "exame": str(row.get('exame', '')),
+            "clinica": str(row.get('clinica', '')),
+            "data": str(row.get('data', '')),
+            "horario": str(row.get('horario', '')),
+            "status": str(row.get('status_confirmacao', 'PENDENTE')).lower()
+        })
+    
+    return jsonify(lista[-20:])
 
 @app.route('/api/download-excel')
 def download_excel():
