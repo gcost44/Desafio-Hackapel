@@ -1,0 +1,6 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd prototipo-simulado && pip install -r requirements.txt"
+
+[deploy]
+startCommand = "cd prototipo-simulado && python app.py"
