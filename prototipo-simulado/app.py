@@ -854,25 +854,39 @@ def whatsapp_configurar_webhook():
     except Exception as e:
         return jsonify({"sucesso": False, "erro": str(e)}), 500
 
-@app.route('/webhook/whatsapp', methods=['POST'])
+@app.route('/webhook/whatsapp', methods=['POST', 'GET'])
 def webhook_whatsapp():
     """Recebe mensagens do WhatsApp"""
+    if request.method == 'GET':
+        return jsonify({"status": "webhook ativo", "url": request.url}), 200
+    
     try:
         dados = request.get_json()
-        print(f"\n📨 Webhook recebido: {json.dumps(dados, indent=2)}")
+        print(f"\n{'='*60}")
+        print(f"📨 WEBHOOK RECEBIDO!")
+        print(f"{'='*60}")
+        print(f"Dados completos: {json.dumps(dados, indent=2)}")
         
         # Verificar tipo de evento
-        if not dados or dados.get('event') != 'messages.upsert':
-            return jsonify({"status": "ignored"}), 200
+        evento = dados.get('event') if dados else None
+        print(f"🔍 Evento: {evento}")
+        
+        if not dados or evento != 'messages.upsert':
+            print(f"⏭️ Ignorando evento: {evento}")
+            return jsonify({"status": "ignored", "evento": evento}), 200
         
         # Extrair dados
         mensagem_data = dados.get('data', {})
         key_info = mensagem_data.get('key', {})
         mensagem_info = mensagem_data.get('message', {})
         
+        print(f"🔍 Key info: {key_info}")
+        print(f"🔍 Message info: {mensagem_info}")
+        
         # Ignorar mensagens enviadas por nós
         if key_info.get('fromMe'):
-            return jsonify({"status": "ignored"}), 200
+            print("⏭️ Mensagem enviada por nós, ignorando")
+            return jsonify({"status": "ignored", "motivo": "fromMe"}), 200
         
         # Número do remetente
         numero_completo = key_info.get('remoteJid', '')
@@ -882,33 +896,62 @@ def webhook_whatsapp():
         texto = mensagem_info.get('conversation') or mensagem_info.get('extendedTextMessage', {}).get('text', '')
         texto = texto.strip()
         
-        print(f"📱 De: {numero} | Mensagem: '{texto}'")
+        print(f"📱 Número: {numero}")
+        print(f"💬 Mensagem: '{texto}'")
+        print(f"{'='*60}\n")
         
         # Processar resposta
         if texto in ['1', '2']:
+            print(f"✅ Iniciando processamento da resposta '{texto}'")
             Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
+        else:
+            print(f"⏭️ Mensagem '{texto}' não é 1 ou 2, ignorando")
         
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "numero": numero, "texto": texto}), 200
         
     except Exception as e:
-        print(f"❌ Erro webhook: {e}")
+        print(f"❌ ERRO NO WEBHOOK: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "erro": str(e)}), 500
 
 def processar_resposta_paciente(telefone, resposta):
     """Processa resposta 1=Confirmar ou 2=Cancelar"""
     try:
+        print(f"\n{'='*60}")
+        print(f"🔄 PROCESSANDO RESPOSTA")
+        print(f"{'='*60}")
+        print(f"Telefone recebido: {telefone}")
+        print(f"Resposta: {resposta}")
+        
         df = carregar_excel()
         if df is None:
+            print("❌ Planilha não encontrada")
             return
         
         # Buscar pelo telefone (remover 55 se tiver)
         tel_busca = telefone[2:] if telefone.startswith('55') else telefone
+        print(f"🔍 Buscando por: {tel_busca}")
+        
         df['telefone'] = df['telefone'].astype(str)
         
+        # Debug: mostrar todos os telefones na planilha
+        print(f"📋 Telefones na planilha: {df['telefone'].tolist()}")
+        
         agendamento = df[df['telefone'].str.contains(tel_busca, na=False)]
+        
         if agendamento.empty:
-            print(f"⚠️ Agendamento não encontrado: {tel_busca}")
+            print(f"⚠️ Nenhum agendamento encontrado para: {tel_busca}")
+            print(f"Tentando buscar sem os dois primeiros dígitos...")
+            # Tentar sem DDD também
+            tel_sem_ddd = tel_busca[2:] if len(tel_busca) > 9 else tel_busca
+            agendamento = df[df['telefone'].str.contains(tel_sem_ddd, na=False)]
+            
+        if agendamento.empty:
+            print(f"❌ Definitivamente não encontrado")
             return
+        
+        print(f"✅ Agendamento encontrado!")
         
         idx = agendamento.index[0]
         paciente = df.at[idx, 'paciente']
