@@ -1050,21 +1050,21 @@ def verificar_mensagens_whatsapp():
                 'apikey': evolution_key
             }
             
-            # Buscar APENAS mensagens mais recentes que o último check
+            # Buscar as 3 mensagens mais recentes (independente de timestamp)
             url = f"{evolution_url}/chat/findMessages/{instance}"
             
-            print(f"\n🔍 [Polling {tentativa}] Verificando mensagens após timestamp {ultimo_timestamp_verificado}...")
+            print(f"\n🔍 [Polling {tentativa}] Verificando últimas 3 mensagens...")
             
             response = requests.post(url, headers=headers, json={
                 'where': {
                     'key': {
                         'fromMe': False
-                    },
-                    'messageTimestamp': {
-                        '$gt': ultimo_timestamp_verificado  # Maior que último verificado
                     }
                 },
-                'limit': 10
+                'limit': 3,
+                'sort': {
+                    'messageTimestamp': -1  # Ordenar do mais recente para o mais antigo
+                }
             }, timeout=10)
             
             print(f"📡 Status: {response.status_code}")
@@ -1081,11 +1081,10 @@ def verificar_mensagens_whatsapp():
                 if not isinstance(mensagens, list):
                     mensagens = [mensagens] if mensagens else []
                 
-                print(f"📬 {len(mensagens)} mensagens NOVAS encontradas")
+                print(f"📬 {len(mensagens)} mensagens retornadas pela API")
                 
                 if isinstance(mensagens, list) and len(mensagens) > 0:
-                    # Atualizar timestamp para a mensagem mais recente
-                    timestamps = []
+                    mensagens_novas = 0
                     
                     for msg in mensagens:
                         try:
@@ -1094,17 +1093,15 @@ def verificar_mensagens_whatsapp():
                             message = msg.get('message', {})
                             messageTimestamp = msg.get('messageTimestamp', 0)
                             
-                            # Coletar timestamps
-                            if messageTimestamp:
-                                timestamps.append(int(messageTimestamp))
-                            
                             # ID único da mensagem
                             msg_id = key.get('id')
                             
                             # Verificar se já processamos
                             if msg_id in mensagens_processadas:
-                                print(f"⏭️ Mensagem {msg_id} já processada")
-                                continue
+                                continue  # Pular silenciosamente se já processada
+                            
+                            # NOVA MENSAGEM encontrada!
+                            mensagens_novas += 1
                             
                             # Ignorar mensagens nossas
                             if key.get('fromMe'):
@@ -1118,19 +1115,22 @@ def verificar_mensagens_whatsapp():
                             texto = message.get('conversation') or message.get('extendedTextMessage', {}).get('text', '')
                             texto = texto.strip()
                             
-                            print(f"📩 Mensagem de {numero}: '{texto}' (timestamp: {messageTimestamp})")
+                            print(f"\n🆕 MENSAGEM NOVA!")
+                            print(f"   📱 Número: {numero}")
+                            print(f"   💬 Texto: '{texto}'")
+                            print(f"   🕐 Timestamp: {messageTimestamp}")
+                            print(f"   🆔 ID: {msg_id}")
+                            
+                            # SEMPRE marcar como processada primeiro
+                            mensagens_processadas.add(msg_id)
                             
                             if texto in ['1', '2']:
-                                print(f"\n✅ Nova mensagem via POLLING: '{texto}' de {numero}")
-                                
-                                # Marcar como processada
-                                mensagens_processadas.add(msg_id)
+                                print(f"   ✅ Processando resposta '{texto}'...")
                                 
                                 # Processar resposta
                                 Thread(target=processar_resposta_paciente, args=(numero, texto)).start()
                             else:
-                                # Marcar como vista mesmo se não for 1 ou 2
-                                mensagens_processadas.add(msg_id)
+                                print(f"   ⏭️ Mensagem '{texto}' ignorada (não é 1 ou 2)")
                         
                         except Exception as e:
                             print(f"⚠️ Erro ao processar mensagem individual: {e}")
@@ -1138,17 +1138,20 @@ def verificar_mensagens_whatsapp():
                             traceback.print_exc()
                             continue
                     
-                    # Atualizar último timestamp verificado
-                    if timestamps:
-                        ultimo_timestamp_verificado = max(timestamps)
-                        print(f"⏰ Timestamp atualizado para: {ultimo_timestamp_verificado}")
+                    if mensagens_novas > 0:
+                        print(f"✅ {mensagens_novas} mensagem(ns) nova(s) processada(s)")
+                    else:
+                        print(f"✓ Nenhuma mensagem nova")
                         
-                    # Limpar cache de mensagens antigas (manter apenas últimas 100)
-                    if len(mensagens_processadas) > 100:
-                        mensagens_processadas.clear()
-                        print("🧹 Cache de mensagens limpo")
+                    # Limpar cache de mensagens antigas (manter apenas últimas 50)
+                    if len(mensagens_processadas) > 50:
+                        # Remover metade das mais antigas
+                        mensagens_antigas = list(mensagens_processadas)[:25]
+                        for msg_id in mensagens_antigas:
+                            mensagens_processadas.discard(msg_id)
+                        print(f"🧹 Cache reduzido: {len(mensagens_processadas)} mensagens na memória")
                 else:
-                    print(f"✓ Nenhuma mensagem nova (timestamp atual: {ultimo_timestamp_verificado})")
+                    print(f"✓ Nenhuma mensagem retornada")
             else:
                 print(f"❌ Erro na API: {response.status_code}")
                 print(f"Resposta: {response.text[:200]}")
