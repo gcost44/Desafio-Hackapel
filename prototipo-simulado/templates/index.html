@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Operador - Sistema SUS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+        .navbar {
+            background: #1a1a1a;
+            color: white;
+            padding: 1.25rem 2rem;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .nav-title { 
+            font-size: 1.25rem; 
+            font-weight: 600; 
+            letter-spacing: -0.02em;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            padding: 2rem;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .page-header h1 { 
+            font-size: 1.75rem; 
+            color: #1a1a1a;
+            font-weight: 600;
+            letter-spacing: -0.03em;
+        }
+        
+        /* Grid Layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        /* Card Minimalista */
+        .card {
+            background: #ffffff;
+            border: 1px solid #e5e5e5;
+            border-radius: 4px;
+            padding: 1.75rem;
+        }
+        .card h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+            color: #1a1a1a;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+        
+        /* Formulário */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #4a4a4a;
+            font-size: 0.9rem;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d4d4d4;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            background: #ffffff;
+            transition: border 0.2s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-primary {
+            background: #1a1a1a;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #2d2d2d;
+        }
+        
+        /* Métricas */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .metric-card {
+            background: #fafafa;
+            padding: 1.5rem;
+            border: 1px solid #e5e5e5;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #1a1a1a;
+            letter-spacing: -0.03em;
+        }
+        .metric-label {
+            color: #737373;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        /* Notificações */
+        .notificacoes {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .notificacao {
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border-radius: 4px;
+            border-left: 2px solid;
+            background: #fafafa;
+        }
+        .notificacao.cancelamento {
+            border-left-color: #ef4444;
+        }
+        .notificacao.convocacao {
+            border-left-color: #10b981;
+        }
+        .notificacao-header {
+            font-weight: 500;
+            margin-bottom: 0.3rem;
+            font-size: 0.9rem;
+        }
+        .notificacao-time {
+            font-size: 0.8rem;
+            color: #737373;
+        }
+        
+        /* WhatsApp Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: white;
+            border-radius: 4px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid #e5e5e5;
+        }
+        .whatsapp-msg {
+            background: #f0f0f0;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+            white-space: pre-line;
+            font-size: 0.9rem;
+            border: 1px solid #e5e5e5;
+        }
+        
+        /* Lista */
+        .fila-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .fila-item {
+            padding: 1rem;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .fila-item:hover {
+            background: #fafafa;
+        }
+        .fila-badge {
+            background: #1a1a1a;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-title">Sistema de Agendamentos SUS</div>
+    </nav>
+
+    <!-- Container -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Painel do Operador</h1>
+            <div style="display: flex; gap: 0.5rem;">
+                <a href="/simulador" class="btn" style="background: #25D366; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+                    💬 Simulador WhatsApp
+                </a>
+                <button class="btn" style="background: #fafafa; border: 1px solid #d4d4d4;" onclick="atualizarDados()">Atualizar</button>
+            </div>
+        </div>
+
+        <!-- Status Excel -->
+        <div class="card" style="margin-bottom: 1.5rem; background: #fafafa; border: 1px solid #e5e5e5;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="flex: 1;">
+                    <h2 style="margin-bottom: 0.75rem;">Planilha de Horários</h2>
+                    <div id="status-excel" style="font-size: 0.9rem; color: #737373;">
+                        Nenhuma planilha carregada
+                    </div>
+                    <div style="font-size: 0.85rem; margin-top: 0.5rem; color: #a3a3a3;">
+                        Você pode carregar múltiplas planilhas 
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <label for="upload-excel" class="btn" style="background: #1a1a1a; color: white; cursor: pointer;">
+                        Adicionar
+                        <input type="file" id="upload-excel" accept=".xlsx,.xls" style="display: none;">
+                    </label>
+                    <button onclick="baixarPlanilha()" class="btn" style="background: #fafafa; color: #1a1a1a; border: 1px solid #d4d4d4;" id="btn-download">
+                        Baixar
+                    </button>
+                    <button onclick="limparPlanilha()" class="btn" style="background: #fafafa; color: #ef4444; border: 1px solid #d4d4d4;">
+                        Limpar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Métricas -->
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-value" id="total-agendados">0</div>
+                <div class="metric-label">Agendados</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-confirmados">0</div>
+                <div class="metric-label">Confirmados</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-cancelados">0</div>
+                <div class="metric-label">Cancelados</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-lembretes">0</div>
+                <div class="metric-label">Lembretes</div>
+            </div>
+        </div>
+
+        <!-- Grid Principal -->
+        <div class="main-grid">
+            <!-- Formulário de Agendamento -->
+            <div class="card">
+                <h2>Novo Agendamento</h2>
+                <form id="form-agendar">
+                    <div class="form-group">
+                        <label>Nome do Paciente</label>
+                        <input type="text" id="nome" placeholder="Ex: Maria Silva" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Telefone (WhatsApp)</label>
+                        <input type="tel" id="telefone" placeholder="11999887766" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Data de Nascimento</label>
+                        <input type="date" id="data-nascimento" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo de Exame</label>
+                        <select id="exame" required>
+                            <option value="">Selecione...</option>
+                            <option value="Cardiologista">Cardiologista</option>
+                            <option value="Oncologista">Oncologista</option>
+                            <option value="Ortopedista">Ortopedista</option>
+                            <option value="Oftalmologista">Oftalmologista</option>
+                            <option value="Neurologista">Neurologista</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">
+                        Agendar e Enviar WhatsApp
+                    </button>
+                </form>
+            </div>
+
+            <!-- Notificações -->
+            <div class="card">
+                <h2>Notificações</h2>
+                <div class="notificacoes" id="notificacoes">
+                    <p style="text-align: center; color: #a0aec0; padding: 2rem;">
+                        Nenhuma notificação no momento
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Últimos Agendamentos -->
+        <div class="card">
+            <h2>Últimos Agendamentos</h2>
+            <div class="fila-list" id="agendamentos-list">
+                <p style="text-align: center; color: #a0aec0; padding: 2rem;">
+                    Nenhum agendamento ainda
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal WhatsApp -->
+    <div class="modal" id="modal-whatsapp">
+        <div class="modal-content">
+            <h2>Mensagem WhatsApp Enviada</h2>
+            <div class="whatsapp-msg" id="whatsapp-mensagem"></div>
+            <button class="btn btn-primary" onclick="fecharModal()">Fechar</button>
+        </div>
+    </div>
+
+    <script>
+        // Atualizar status do Excel
+        async function atualizarStatusExcel() {
+            try {
+                const status = await fetch('/api/status-excel').then(r => r.json());
+                const statusDiv = document.getElementById('status-excel');
+                
+                if (status.carregado) {
+                    statusDiv.innerHTML = `
+                        ✅ ${status.total_horarios} horários carregados<br>
+                        <small>📗 ${status.vagas_disponiveis} disponíveis | 📕 ${status.vagas_ocupadas} ocupadas</small>
+                    `;
+                    document.getElementById('btn-download').disabled = false;
+                } else {
+                    statusDiv.innerHTML = '⚠️ Nenhuma planilha carregada';
+                    document.getElementById('btn-download').disabled = true;
+                }
+            } catch (error) {
+                console.error('Erro ao verificar Excel:', error);
+            }
+        }
+
+        // Atualizar métricas
+        async function atualizarDados() {
+            try {
+                const [metricas, notifs, agendamentos] = await Promise.all([
+                    fetch('/api/metricas').then(r => r.json()),
+                    fetch('/api/notificacoes').then(r => r.json()),
+                    fetch('/api/agendamentos').then(r => r.json())
+                ]);
+                
+                // Métricas
+                document.getElementById('total-agendados').textContent = metricas.agendados;
+                document.getElementById('total-confirmados').textContent = metricas.confirmados;
+                document.getElementById('total-cancelados').textContent = metricas.cancelados;
+                document.getElementById('total-lembretes').textContent = metricas.lembretes_enviados;
+                
+                // Notificações
+                const notifsDiv = document.getElementById('notificacoes');
+                if (notifs.length === 0) {
+                    notifsDiv.innerHTML = '<p style="text-align: center; color: #a0aec0; padding: 2rem;">Nenhuma notificação no momento</p>';
+                } else {
+                    notifsDiv.innerHTML = notifs.reverse().map(n => `
+                        <div class="notificacao ${n.tipo === 'CANCELAMENTO' ? 'cancelamento' : 'convocacao'}">
+                            <div class="notificacao-header">${n.mensagem}</div>
+                            <div class="notificacao-time">${n.horario}</div>
+                        </div>
+                    `).join('');
+                }
+                
+                // Últimos agendamentos
+                const agendDiv = document.getElementById('agendamentos-list');
+                if (agendamentos.length === 0) {
+                    agendDiv.innerHTML = '<p style="text-align: center; color: #a0aec0; padding: 2rem;">Nenhum agendamento ainda</p>';
+                } else {
+                    agendDiv.innerHTML = agendamentos.reverse().slice(0, 10).map(a => `
+                        <div class="fila-item">
+                            <div>
+                                <strong>${a.paciente}</strong><br>
+                                <small>${a.exame} • ${a.data} às ${a.horario} • ${a.clinica}</small>
+                            </div>
+                            <span class="fila-badge" style="background: ${
+                                a.status === 'confirmado' ? '#48bb78' : 
+                                a.status === 'cancelado' ? '#f56565' : '#667eea'
+                            }">
+                                ${a.status === 'confirmado' ? '✅ Confirmado' : 
+                                  a.status === 'cancelado' ? '❌ Cancelado' : '⏳ Pendente'}
+                            </span>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Erro ao atualizar:', error);
+            }
+        }
+        
+        // Upload Excel
+        document.getElementById('upload-excel').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/upload-excel', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.sucesso) {
+                    let mensagem = `✅ ${result.mensagem}\n\n`;
+                    mensagem += `📊 Total de horários: ${result.total_horarios}\n`;
+                    mensagem += `📗 Vagas disponíveis: ${result.vagas_disponiveis}\n`;
+                    if (result.horarios_adicionados > 0) {
+                        mensagem += `\n➕ Adicionados: ${result.horarios_adicionados} novos horários`;
+                    }
+                    if (result.horarios_duplicados > 0) {
+                        mensagem += `\n⚠️ Ignorados: ${result.horarios_duplicados} duplicados`;
+                    }
+                    alert(mensagem);
+                    atualizarStatusExcel();
+                } else {
+                    alert('❌ ' + (result.erro || 'Erro ao carregar planilha'));
+                }
+            } catch (error) {
+                alert('❌ Erro ao enviar arquivo');
+                console.error(error);
+            }
+            
+            // Resetar input para permitir re-upload do mesmo arquivo
+            e.target.value = '';
+        });
+        
+        // Formulário de agendamento
+        document.getElementById('form-agendar').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const dados = {
+                nome: document.getElementById('nome').value,
+                telefone: document.getElementById('telefone').value,
+                data_nascimento: document.getElementById('data-nascimento').value,
+                exame: document.getElementById('exame').value
+            };
+            
+            try {
+                const response = await fetch('/api/agendar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dados)
+                });
+                
+                const result = await response.json();
+                
+                if (result.sucesso) {
+                    // Mostrar mensagem enviada
+                    let mensagemDisplay = result.mensagem;
+                    if (result.idoso) {
+                        mensagemDisplay = '🔊 ÁUDIO ENVIADO PARA IDOSO (' + result.idade + ' anos)\n\n' + mensagemDisplay;
+                    }
+                    document.getElementById('whatsapp-mensagem').textContent = mensagemDisplay;
+                    document.getElementById('modal-whatsapp').classList.add('show');
+                    
+                    // Limpar formulário
+                    e.target.reset();
+                    
+                    // Atualizar dados
+                    setTimeout(() => {
+                        atualizarDados();
+                        atualizarStatusExcel();
+                    }, 500);
+                } else {
+                    alert(result.erro || result.mensagem || 'Erro ao agendar');
+                    atualizarDados();
+                }
+            } catch (error) {
+                alert('Erro ao processar agendamento');
+                console.error(error);
+            }
+        });
+        
+        function fecharModal() {
+            document.getElementById('modal-whatsapp').classList.remove('show');
+        }
+        
+        // Baixar planilha consolidada
+        function baixarPlanilha() {
+            window.location.href = '/api/download-excel';
+        }
+        
+        // Limpar planilha
+        async function limparPlanilha() {
+            if (!confirm('⚠️ Tem certeza que deseja remover TODAS as planilhas?\n\nIsso vai limpar todos os horários carregados (agendamentos já feitos serão mantidos).')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/limpar-excel', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.sucesso) {
+                    alert('✅ ' + result.mensagem);
+                    atualizarStatusExcel();
+                } else {
+                    alert('❌ ' + (result.erro || 'Erro ao limpar planilha'));
+                }
+            } catch (error) {
+                alert('❌ Erro ao limpar planilha');
+                console.error(error);
+            }
+        }
+        
+        // Atualizar automaticamente a cada 10 segundos
+        setInterval(atualizarDados, 10000);
+        setInterval(atualizarStatusExcel, 10000);
+        
+        // Carregar dados inicial
+        atualizarStatusExcel();
+        atualizarDados();
+    </script>
+</body>
+</html>

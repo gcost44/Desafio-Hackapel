@@ -1,0 +1,55 @@
+# Arquivos de ambiente
+.env
+.env.local
+.env.production
+
+# Dados sensíveis
+*.pem
+*.key
+credentials.json
+token.json
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+docker-compose.override.yml
+
+# Uploads temporários
+uploads/*.xlsx
+uploads/*.xls
+uploads/*.csv
+
+# Dados processados
+*.json.bak
+*_processado.json
+*_relatorio.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importar Dados - Sistema SUS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="nav-icon">🏥</span>
+                <span class="nav-title">Sistema SUS Automação</span>
+            </div>
+            <div class="nav-menu">
+                <a href="/" class="nav-link">📊 Dashboard</a>
+                <a href="/importar" class="nav-link active">📥 Importar</a>
+                <a href="/fila" class="nav-link">👥 Fila</a>
+                <a href="/relatorios" class="nav-link">📈 Relatórios</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Importar Planilha</h1>
+        </div>
+
+        <!-- Upload Area -->
+        <div class="upload-section">
+            <div class="upload-card">
+                <div class="upload-icon">📁</div>
+                <h2>Arraste a planilha aqui</h2>
+                <p>ou clique para selecionar</p>
+                <input type="file" id="file-input" accept=".xlsx,.xls" style="display: none;">
+                <button class="btn btn-primary btn-large" onclick="document.getElementById('file-input').click()">
+                    Selecionar Arquivo Excel
+                </button>
+                <div class="upload-info">
+                    <p>Formatos aceitos: .xlsx, .xls</p>
+                    <p>Tamanho máximo: 10MB</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modelo Template -->
+        <div class="template-section">
+            <div class="template-card">
+                <div class="template-header">
+                    <h3>📋 Modelo de Planilha</h3>
+                    <button class="btn btn-secondary" onclick="baixarTemplate()">
+                        ⬇️ Baixar Template
+                    </button>
+                </div>
+                <div class="template-columns">
+                    <div class="template-column">
+                        <strong>Colunas obrigatórias:</strong>
+                        <ul>
+                            <li><code>nome</code> - Nome completo do paciente</li>
+                            <li><code>telefone</code> - Telefone com DDD (11 dígitos)</li>
+                            <li><code>data_consulta</code> - Formato: DD/MM/YYYY</li>
+                            <li><code>horario</code> - Formato: HH:MM</li>
+                            <li><code>especialidade</code> - Ex: Cardiologista, Ortopedista</li>
+                            <li><code>local</code> - Unidade de saúde</li>
+                        </ul>
+                    </div>
+                    <div class="template-column">
+                        <strong>Colunas opcionais:</strong>
+                        <ul>
+                            <li><code>cpf</code> - CPF do paciente</li>
+                            <li><code>idade</code> - Idade em anos</li>
+                            <li><code>observacoes</code> - Informações adicionais</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Exemplo Visual -->
+                <div class="template-example">
+                    <h4>Exemplo:</h4>
+                    <table class="example-table">
+                        <thead>
+                            <tr>
+                                <th>nome</th>
+                                <th>telefone</th>
+                                <th>data_consulta</th>
+                                <th>horario</th>
+                                <th>especialidade</th>
+                                <th>local</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Maria Silva</td>
+                                <td>11987654321</td>
+                                <td>15/01/2025</td>
+                                <td>14:30</td>
+                                <td>Cardiologista</td>
+                                <td>UBS Central</td>
+                            </tr>
+                            <tr>
+                                <td>João Santos</td>
+                                <td>11976543210</td>
+                                <td>16/01/2025</td>
+                                <td>09:00</td>
+                                <td>Ortopedista</td>
+                                <td>Hospital Regional</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview de Dados -->
+        <div id="preview-section" class="preview-section" style="display: none;">
+            <div class="preview-card">
+                <div class="preview-header">
+                    <h3>📊 Prévia dos Dados</h3>
+                    <div class="preview-stats">
+                        <span class="preview-stat preview-stat-success">
+                            <strong id="preview-validos">0</strong> válidos
+                        </span>
+                        <span class="preview-stat preview-stat-danger">
+                            <strong id="preview-erros">0</strong> com erros
+                        </span>
+                    </div>
+                </div>
+
+                <div class="preview-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Nome</th>
+                                <th>Telefone</th>
+                                <th>Data</th>
+                                <th>Especialidade</th>
+                                <th>Erros</th>
+                            </tr>
+                        </thead>
+                        <tbody id="preview-tbody">
+                            <!-- Dados serão carregados aqui -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="preview-actions">
+                    <button class="btn btn-secondary" onclick="cancelarImportacao()">
+                        Cancelar
+                    </button>
+                    <button class="btn btn-success btn-large" onclick="confirmarImportacao()">
+                        ✅ Confirmar Importação
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading-spinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>Processando planilha...</p>
+        </div>
+    </div>
+
+    <script>
+        let dadosPreview = [];
+
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                processarArquivo(file);
+            }
+        });
+
+        function processarArquivo(file) {
+            document.getElementById('loading-spinner').style.display = 'flex';
+            
+            // Simular processamento
+            setTimeout(() => {
+                dadosPreview = [
+                    { nome: 'Maria Silva', telefone: '11987654321', data: '15/01/2025', especialidade: 'Cardiologista', valido: true, erros: [] },
+                    { nome: 'João Santos', telefone: '11976543210', data: '16/01/2025', especialidade: 'Ortopedista', valido: true, erros: [] },
+                    { nome: 'Ana Costa', telefone: '1198765', data: '17/01/2025', especialidade: 'Neurologista', valido: false, erros: ['Telefone inválido'] },
+                    { nome: 'Pedro Oliveira', telefone: '11965432109', data: '18/01/2025', especialidade: 'Pediatra', valido: true, erros: [] },
+                    { nome: 'Carlos', telefone: '11954321098', data: 'data inválida', especialidade: 'Urologista', valido: false, erros: ['Data inválida'] }
+                ];
+
+                mostrarPreview();
+                document.getElementById('loading-spinner').style.display = 'none';
+            }, 1500);
+        }
+
+        function mostrarPreview() {
+            const validos = dadosPreview.filter(d => d.valido).length;
+            const erros = dadosPreview.filter(d => !d.valido).length;
+
+            document.getElementById('preview-validos').textContent = validos;
+            document.getElementById('preview-erros').textContent = erros;
+
+            const tbody = document.getElementById('preview-tbody');
+            tbody.innerHTML = '';
+
+            dadosPreview.forEach(paciente => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><span class="badge badge-${paciente.valido ? 'success' : 'danger'}">${paciente.valido ? '✓' : '✗'}</span></td>
+                    <td>${paciente.nome}</td>
+                    <td>${paciente.telefone}</td>
+                    <td>${paciente.data}</td>
+                    <td>${paciente.especialidade}</td>
+                    <td>${paciente.erros.length ? `<span class="text-danger">${paciente.erros.join(', ')}</span>` : '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('preview-section').style.display = 'block';
+        }
+
+        function confirmarImportacao() {
+            if (confirm('Confirma a importação de ' + dadosPreview.filter(d => d.valido).length + ' pacientes?')) {
+                document.getElementById('loading-spinner').style.display = 'flex';
+                
+                setTimeout(() => {
+                    alert('✅ Importação concluída com sucesso!');
+                    window.location.href = '/';
+                }, 1000);
+            }
+        }
+
+        function cancelarImportacao() {
+            document.getElementById('preview-section').style.display = 'none';
+            document.getElementById('file-input').value = '';
+            dadosPreview = [];
+        }
+
+        function baixarTemplate() {
+            alert('📥 Download do template iniciado!\n\n(Em produção, seria gerado um arquivo Excel real)');
+        }
+    </script>
+</body>
+</html>

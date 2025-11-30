@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatórios - Sistema SUS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="nav-icon">🏥</span>
+                <span class="nav-title">Sistema SUS Automação</span>
+            </div>
+            <div class="nav-menu">
+                <a href="/" class="nav-link">📊 Dashboard</a>
+                <a href="/importar" class="nav-link">📥 Importar</a>
+                <a href="/fila" class="nav-link">👥 Fila</a>
+                <a href="/relatorios" class="nav-link active">📈 Relatórios</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="page-header">
+            <h1>Relatórios e Análises</h1>
+            <div class="page-actions">
+                <select id="periodo-select" class="filter-select" onchange="atualizarRelatorios()">
+                    <option value="7">Últimos 7 dias</option>
+                    <option value="30" selected>Últimos 30 dias</option>
+                    <option value="90">Últimos 90 dias</option>
+                    <option value="365">Último ano</option>
+                </select>
+                <button class="btn btn-secondary" onclick="exportarRelatorio()">
+                    📥 Exportar PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- KPIs Principais -->
+        <div class="kpi-section">
+            <h2>📊 Indicadores Chave (KPIs)</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-value" id="kpi-taxa-confirmacao">79%</div>
+                    <div class="kpi-label">Taxa de Confirmação</div>
+                    <div class="kpi-trend trend-up">↑ +12% vs mês anterior</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value" id="kpi-reducao-faltas">40%</div>
+                    <div class="kpi-label">Redução de Faltas</div>
+                    <div class="kpi-trend trend-up">↑ Meta: 40%</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value" id="kpi-economia">R$ 5.240</div>
+                    <div class="kpi-label">Economia Mensal</div>
+                    <div class="kpi-trend trend-up">↑ +R$ 850 vs mês anterior</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value" id="kpi-tempo-resposta">2.3min</div>
+                    <div class="kpi-label">Tempo Médio Resposta</div>
+                    <div class="kpi-trend trend-down">↓ -45% vs manual</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráficos -->
+        <div class="charts-grid">
+            <!-- Gráfico de Linha: Evolução Temporal -->
+            <div class="chart-card">
+                <h3>📈 Evolução de Confirmações</h3>
+                <canvas id="chart-evolucao"></canvas>
+            </div>
+
+            <!-- Gráfico de Pizza: Distribuição de Status -->
+            <div class="chart-card">
+                <h3>🥧 Distribuição por Status</h3>
+                <canvas id="chart-status"></canvas>
+            </div>
+
+            <!-- Gráfico de Barras: Por Especialidade -->
+            <div class="chart-card">
+                <h3>📊 Taxa de Sucesso por Especialidade</h3>
+                <canvas id="chart-especialidade"></canvas>
+            </div>
+
+            <!-- Gráfico de Barras: Horários -->
+            <div class="chart-card">
+                <h3>⏰ Melhores Horários de Resposta</h3>
+                <canvas id="chart-horarios"></canvas>
+            </div>
+        </div>
+
+        <!-- Tabela Detalhada -->
+        <div class="table-container">
+            <div class="table-header">
+                <h2>📋 Detalhamento por Especialidade</h2>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Especialidade</th>
+                        <th>Total Enviados</th>
+                        <th>Confirmados</th>
+                        <th>Cancelados</th>
+                        <th>Faltas</th>
+                        <th>Taxa Sucesso</th>
+                        <th>Economia (R$)</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-especialidades">
+                    <tr>
+                        <td><strong>Cardiologista</strong></td>
+                        <td>42</td>
+                        <td><span class="badge badge-success">35</span></td>
+                        <td><span class="badge badge-warning">5</span></td>
+                        <td><span class="badge badge-danger">2</span></td>
+                        <td><strong>83%</strong></td>
+                        <td>R$ 1.480</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Oncologista</strong></td>
+                        <td>38</td>
+                        <td><span class="badge badge-success">32</span></td>
+                        <td><span class="badge badge-warning">4</span></td>
+                        <td><span class="badge badge-danger">2</span></td>
+                        <td><strong>84%</strong></td>
+                        <td>R$ 1.620</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ortopedista</strong></td>
+                        <td>35</td>
+                        <td><span class="badge badge-success">27</span></td>
+                        <td><span class="badge badge-warning">6</span></td>
+                        <td><span class="badge badge-danger">2</span></td>
+                        <td><strong>77%</strong></td>
+                        <td>R$ 920</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Neurologista</strong></td>
+                        <td>28</td>
+                        <td><span class="badge badge-success">21</span></td>
+                        <td><span class="badge badge-warning">5</span></td>
+                        <td><span class="badge badge-danger">2</span></td>
+                        <td><strong>75%</strong></td>
+                        <td>R$ 740</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pediatra</strong></td>
+                        <td>15</td>
+                        <td><span class="badge badge-success">9</span></td>
+                        <td><span class="badge badge-warning">4</span></td>
+                        <td><span class="badge badge-danger">2</span></td>
+                        <td><strong>60%</strong></td>
+                        <td>R$ 480</td>
+                    </tr>
+                    <tr class="table-total">
+                        <td><strong>TOTAL</strong></td>
+                        <td><strong>158</strong></td>
+                        <td><strong>124</strong></td>
+                        <td><strong>24</strong></td>
+                        <td><strong>10</strong></td>
+                        <td><strong>79%</strong></td>
+                        <td><strong>R$ 5.240</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Insights da IA -->
+        <div class="insights-section">
+            <h2>🤖 Insights Gerados por IA</h2>
+            <div class="insights-grid">
+                <div class="insight-card insight-success">
+                    <div class="insight-icon">✅</div>
+                    <div class="insight-content">
+                        <h4>Melhor Desempenho</h4>
+                        <p>Oncologia apresenta 84% de taxa de confirmação, 9% acima da média. Recomendação: replicar estratégia de envio (48h antes) para outras especialidades.</p>
+                    </div>
+                </div>
+                <div class="insight-card insight-warning">
+                    <div class="insight-icon">⚠️</div>
+                    <div class="insight-content">
+                        <h4>Atenção Necessária</h4>
+                        <p>Pediatria com 60% de confirmação. Sugestão: adicionar linguagem mais acessível nas mensagens e enviar lembretes adicionais aos responsáveis.</p>
+                    </div>
+                </div>
+                <div class="insight-card insight-info">
+                    <div class="insight-icon">💡</div>
+                    <div class="insight-content">
+                        <h4>Oportunidade</h4>
+                        <p>Horário de maior engajamento: 18h-20h (92% de taxa de leitura). Realocar envios automáticos para este período pode aumentar confirmações em ~15%.</p>
+                    </div>
+                </div>
+                <div class="insight-card insight-primary">
+                    <div class="insight-icon">📊</div>
+                    <div class="insight-content">
+                        <h4>Impacto Financeiro</h4>
+                        <p>Sistema já economizou R$ 5.240 em 30 dias. Projeção anual: R$ 62.880 de economia para a unidade de saúde.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configurações dos gráficos
+        Chart.defaults.font.family = 'Inter';
+        Chart.defaults.color = '#64748b';
+
+        // Gráfico de Evolução
+        const ctxEvolucao = document.getElementById('chart-evolucao').getContext('2d');
+        new Chart(ctxEvolucao, {
+            type: 'line',
+            data: {
+                labels: ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'],
+                datasets: [{
+                    label: 'Confirmados',
+                    data: [25, 32, 38, 29],
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }, {
+                    label: 'Cancelados',
+                    data: [8, 6, 5, 5],
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }, {
+                    label: 'Faltas',
+                    data: [5, 4, 3, 2],
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+
+        // Gráfico de Status
+        const ctxStatus = document.getElementById('chart-status').getContext('2d');
+        new Chart(ctxStatus, {
+            type: 'doughnut',
+            data: {
+                labels: ['Confirmados', 'Cancelados', 'Faltas', 'Pendentes'],
+                datasets: [{
+                    data: [124, 24, 10, 0],
+                    backgroundColor: ['#10b981', '#f59e0b', '#ef4444', '#94a3b8']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+
+        // Gráfico de Especialidades
+        const ctxEspecialidade = document.getElementById('chart-especialidade').getContext('2d');
+        new Chart(ctxEspecialidade, {
+            type: 'bar',
+            data: {
+                labels: ['Cardiologia', 'Oncologia', 'Ortopedia', 'Neurologia', 'Pediatria'],
+                datasets: [{
+                    label: 'Taxa de Confirmação (%)',
+                    data: [83, 84, 77, 75, 60],
+                    backgroundColor: ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        // Gráfico de Horários
+        const ctxHorarios = document.getElementById('chart-horarios').getContext('2d');
+        new Chart(ctxHorarios, {
+            type: 'bar',
+            data: {
+                labels: ['8h-10h', '10h-12h', '12h-14h', '14h-16h', '16h-18h', '18h-20h'],
+                datasets: [{
+                    label: 'Taxa de Resposta (%)',
+                    data: [45, 52, 38, 61, 73, 92],
+                    backgroundColor: '#3b82f6'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        function exportarRelatorio() {
+            alert('📥 Exportação de relatório iniciada!\n\n(Em produção, seria gerado um PDF completo)');
+        }
+
+        function atualizarRelatorios() {
+            alert('🔄 Atualizando relatórios...\n\n(Dados seriam recarregados do servidor)');
+        }
+    </script>
+</body>
+</html>

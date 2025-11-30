@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador WhatsApp - Sistema SUS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #128C7E 0%, #075E54 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+            height: 80vh;
+        }
+        
+        /* Lista de conversas */
+        .conversas-lista {
+            width: 300px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .conversas-header {
+            background: #075E54;
+            color: white;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .conversas-items {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .conversa-item {
+            padding: 15px;
+            border-bottom: 1px solid #e5e5e5;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .conversa-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .conversa-item.active {
+            background: #DCF8C6;
+        }
+        
+        .conversa-nome {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #1a1a1a;
+        }
+        
+        .conversa-info {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .conversa-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+        
+        .status-pendente { background: #FFF3CD; color: #856404; }
+        .status-confirmado { background: #D4EDDA; color: #155724; }
+        .status-cancelado { background: #F8D7DA; color: #721C24; }
+        
+        /* Chat WhatsApp */
+        .whatsapp-chat {
+            flex: 1;
+            background: #E5DDD5;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-header {
+            background: #075E54;
+            color: white;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #25D366;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        
+        .chat-info h3 {
+            font-size: 16px;
+            margin-bottom: 3px;
+        }
+        
+        .chat-info p {
+            font-size: 13px;
+            opacity: 0.8;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message.recebida {
+            justify-content: flex-start;
+        }
+        
+        .message.enviada {
+            justify-content: flex-end;
+        }
+        
+        .message-bubble {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 8px;
+            position: relative;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+        
+        .message.recebida .message-bubble {
+            background: white;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .message.enviada .message-bubble {
+            background: #DCF8C6;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .message-time {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+            text-align: right;
+        }
+        
+        .chat-input {
+            background: #F0F0F0;
+            padding: 10px 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .quick-replies {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .quick-reply-btn {
+            padding: 10px 20px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+        
+        .quick-reply-btn:hover {
+            background: #25D366;
+            color: white;
+            border-color: #25D366;
+        }
+        
+        .empty-state {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: #666;
+            gap: 10px;
+        }
+        
+        .empty-state .icon {
+            font-size: 64px;
+            opacity: 0.3;
+        }
+        
+        .btn-voltar {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: white;
+            color: #075E54;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        
+        .btn-voltar:hover {
+            background: #f5f5f5;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="btn-voltar">← Voltar ao Sistema</a>
+    
+    <div class="container">
+        <!-- Lista de Conversas -->
+        <div class="conversas-lista">
+            <div class="conversas-header">
+                💬 Conversas Ativas
+            </div>
+            <div class="conversas-items" id="lista-conversas">
+                <div class="empty-state">
+                    <div class="icon">📱</div>
+                    <p>Nenhum agendamento ainda</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chat WhatsApp -->
+        <div class="whatsapp-chat">
+            <div class="chat-header" id="chat-header" style="display: none;">
+                <div class="chat-avatar">👤</div>
+                <div class="chat-info">
+                    <h3 id="chat-nome">Selecione uma conversa</h3>
+                    <p id="chat-telefone">-</p>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <div class="empty-state">
+                    <div class="icon">💬</div>
+                    <p>Selecione uma conversa para começar</p>
+                </div>
+            </div>
+            
+            <div class="chat-input" id="chat-input" style="display: none;">
+                <div class="quick-replies">
+                    <button class="quick-reply-btn" onclick="enviarResposta('1')">1 - Confirmar ✅</button>
+                    <button class="quick-reply-btn" onclick="enviarResposta('2')">2 - Cancelar ❌</button>
+                    <button class="quick-reply-btn" onclick="enviarResposta('Obrigado!')">Obrigado! 🙏</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let conversaAtual = null;
+        let mensagens = [];
+
+        // Carregar conversas
+        async function carregarConversas() {
+            try {
+                const response = await fetch('/api/simulador/conversas');
+                const conversas = await response.json();
+                
+                const lista = document.getElementById('lista-conversas');
+                
+                if (conversas.length === 0) {
+                    lista.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📱</div>
+                            <p>Nenhum agendamento ainda</p>
+                            <small>Faça um agendamento na tela principal</small>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                lista.innerHTML = conversas.map(c => `
+                    <div class="conversa-item" onclick="abrirConversa(${c.id})">
+                        <div class="conversa-nome">${c.paciente}</div>
+                        <div class="conversa-info">
+                            ${c.exame} - ${c.data} ${c.horario}
+                        </div>
+                        <span class="conversa-status status-${c.status}">${c.status}</span>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Erro ao carregar conversas:', error);
+            }
+        }
+
+        // Abrir conversa
+        async function abrirConversa(id) {
+            conversaAtual = id;
+            
+            // Atualizar visual da lista
+            document.querySelectorAll('.conversa-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.currentTarget.classList.add('active');
+            
+            try {
+                const response = await fetch(`/api/simulador/mensagem/${id}`);
+                const data = await response.json();
+                
+                // Atualizar header
+                document.getElementById('chat-header').style.display = 'flex';
+                document.getElementById('chat-nome').textContent = data.paciente;
+                document.getElementById('chat-telefone').textContent = data.telefone;
+                
+                // Limpar e adicionar mensagem inicial
+                mensagens = [{
+                    tipo: 'recebida',
+                    texto: data.mensagem,
+                    hora: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}),
+                    audio: data.audio_url
+                }];
+                
+                renderizarMensagens();
+                
+                // Mostrar input
+                document.getElementById('chat-input').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Erro ao abrir conversa:', error);
+            }
+        }
+
+        // Renderizar mensagens
+        function renderizarMensagens() {
+            const container = document.getElementById('chat-messages');
+            
+            container.innerHTML = mensagens.map(msg => {
+                let audioHtml = '';
+                if (msg.audio) {
+                    audioHtml = `
+                        <div style="margin: 10px 0; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 8px;">
+                            <div style="margin-bottom: 5px; font-weight: 600;">🔊 Áudio para Idoso</div>
+                            <audio controls style="width: 100%; max-width: 300px;">
+                                <source src="${msg.audio}" type="audio/mpeg">
+                                Seu navegador não suporta áudio.
+                            </audio>
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <div class="message ${msg.tipo}">
+                        <div class="message-bubble">
+                            ${msg.texto.replace(/\n/g, '<br>')}
+                            ${audioHtml}
+                            <div class="message-time">${msg.hora}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Scroll para o final
+            setTimeout(() => {
+                container.scrollTop = container.scrollHeight;
+            }, 100);
+        }
+
+        // Enviar resposta
+        async function enviarResposta(texto) {
+            if (!conversaAtual) return;
+            
+            const hora = new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+            
+            // Adicionar mensagem enviada
+            mensagens.push({
+                tipo: 'enviada',
+                texto: texto,
+                hora: hora
+            });
+            
+            renderizarMensagens();
+            
+            // Enviar para o backend
+            try {
+                const response = await fetch(`/api/simulador/responder/${conversaAtual}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ resposta: texto })
+                });
+                
+                const data = await response.json();
+                
+                // Adicionar resposta do sistema
+                setTimeout(() => {
+                    mensagens.push({
+                        tipo: 'recebida',
+                        texto: data.mensagem,
+                        hora: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})
+                    });
+                    
+                    renderizarMensagens();
+                    
+                    // Atualizar lista de conversas após 1 segundo
+                    setTimeout(carregarConversas, 1000);
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Erro ao enviar resposta:', error);
+                alert('Erro ao processar resposta. Tente novamente.');
+            }
+        }
+
+        // Atualizar a cada 5 segundos
+        setInterval(carregarConversas, 5000);
+        
+        // Carregar inicialmente
+        carregarConversas();
+    </script>
+</body>
+</html>
